@@ -112,6 +112,6 @@ jobs:
           build-args: |
             NEXT_PUBLIC_API_URL=/api/v1
             NEXT_PUBLIC_APP_NAME=EcoConecta – Villas de San Pablo
-            NEXT_PUBLIC_WHATSAPP_PUBLIC_NUMBER=${{ vars.WHATSAPP_PUBLIC_NUMBER || '573000000000' }}
+            NEXT_PUBLIC_WHATSAPP_PUBLIC_NUMBER=${{ vars.WHATSAPP_PUBLIC_NUMBER || '573235017843' }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

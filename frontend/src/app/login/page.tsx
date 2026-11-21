@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  AlertCircle,
   Building2,
   Home,
   KeyRound,
@@ -8,16 +9,71 @@ import {
   Loader2,
   LogIn,
   Recycle,
+  RefreshCw,
   ShieldCheck,
   UserPlus,
 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { FormEvent, Suspense, useEffect, useState } from "react";
+import { FormEvent, Suspense, useCallback, useEffect, useState } from "react";
 
 import BackToHomeButton from "@/components/BackToHomeButton";
 import { useAuth } from "@/context/AuthContext";
-import { apiFetch } from "@/lib/api";
+import { ApiError, apiFetch } from "@/lib/api";
 import type { DemoAccount, Usuario } from "@/lib/types";
+
+const DEFAULT_DEMO_ACCOUNTS: DemoAccount[] = [
+  {
+    email: "coord.huerta@villas.demo",
+    nombre: "Marta Lucía Herrera",
+    rol: "coordinador_huerteros",
+    etiqueta: "Coordinador de Huerteros",
+    descripcion: "Panel /coordinacion — pedidos orgánicos de WhatsApp.",
+    flujo: "organico",
+  },
+  {
+    email: "coord.reciclaje@villas.demo",
+    nombre: "Carlos Alberto Barrios",
+    rol: "coordinador_recicladores",
+    etiqueta: "Coordinador de Recicladores",
+    descripcion: "Panel /coordinacion — pedidos reciclables de WhatsApp.",
+    flujo: "reciclable",
+  },
+  {
+    email: "admin@villas.demo",
+    nombre: "Andrea Carolina Pacheco",
+    rol: "administrador",
+    etiqueta: "Administrador Comunitario",
+    descripcion: "Supervisión general, reglas de puntos y piloto.",
+    flujo: null,
+  },
+  {
+    email: "piloto@villas.demo",
+    nombre: "Comedor Comunitario Sabor Caribeño",
+    rol: "unidad_productiva",
+    etiqueta: "Unidad Productiva Piloto",
+    descripcion: "Ver pedidos, puntos y beneficios en Mi Cuenta.",
+    flujo: "organico",
+  },
+  {
+    email: "hogar@villas.demo",
+    nombre: "Familia Mendoza Polo",
+    rol: "hogar",
+    etiqueta: "Hogar Ciudadano",
+    descripcion: "Ver entregas, puntos y canjes en Mi Cuenta.",
+    flujo: "reciclable",
+  },
+];
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isTransientWakeupError(err: unknown): boolean {
+  if (err instanceof ApiError) {
+    return err.status === 502 || err.status === 503 || err.status === 504;
+  }
+  return err instanceof TypeError;
+}
 
 function roleRedirect(user: Usuario, nextPath: string | null): string {
   const isCoord =
@@ -75,8 +131,15 @@ function LoginContent() {
   const { login, demoLogin, register } = useAuth();
 
   const [tab, setTab] = useState<"login" | "register">("login");
-  const [demoAccounts, setDemoAccounts] = useState<DemoAccount[]>([]);
+  // Precarga inmediata de las 5 cuentas demo para que nunca se vea vacío durante el arranque en frío de Render
+  const [demoAccounts, setDemoAccounts] = useState<DemoAccount[]>(
+    DEFAULT_DEMO_ACCOUNTS
+  );
+  const [demoSyncState, setDemoSyncState] = useState<
+    "checking" | "ready" | "waking" | "offline" | "disabled"
+  >("checking");
   const [busyEmail, setBusyEmail] = useState<string | null>(null);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -92,21 +155,69 @@ function LoginContent() {
   const [regTelefono, setRegTelefono] = useState("");
   const [regDireccion, setRegDireccion] = useState("");
 
-  useEffect(() => {
-    apiFetch<DemoAccount[]>("/auth/demo-accounts", { auth: false })
-      .then(setDemoAccounts)
-      .catch(() => setDemoAccounts([]));
+  const syncDemoAccounts = useCallback(async () => {
+    setDemoSyncState("checking");
+    const maxAttempts = 4;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        const live = await apiFetch<DemoAccount[]>("/auth/demo-accounts", {
+          auth: false,
+        });
+        if (live.length === 0) {
+          setDemoAccounts([]);
+          setDemoSyncState("disabled");
+        } else {
+          setDemoAccounts(live);
+          setDemoSyncState("ready");
+        }
+        return;
+      } catch {
+        if (attempt < maxAttempts) {
+          setDemoSyncState("waking");
+          await sleep(attempt * 3000);
+        } else {
+          // Conserva los 5 botones precargados + muestra aviso claro para reintentar
+          setDemoAccounts(DEFAULT_DEMO_ACCOUNTS);
+          setDemoSyncState("offline");
+        }
+      }
+    }
   }, []);
+
+  useEffect(() => {
+    void syncDemoAccounts();
+  }, [syncDemoAccounts]);
 
   const handleDemoClick = async (demoEmail: string) => {
     setError(null);
+    setStatusMessage(null);
     setBusyEmail(demoEmail);
     try {
-      const user = await demoLogin(demoEmail);
-      router.push(roleRedirect(user, nextPath));
+      const maxAttempts = 3;
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+          const user = await demoLogin(demoEmail);
+          setStatusMessage(null);
+          router.push(roleRedirect(user, nextPath));
+          return;
+        } catch (err) {
+          if (isTransientWakeupError(err) && attempt < maxAttempts) {
+            setStatusMessage(
+              "El servidor en la nube está encendiendo (tarda ~25 segundos). Reintentando automáticamente..."
+            );
+            await sleep(4000);
+            continue;
+          }
+          throw err;
+        }
+      }
     } catch (err) {
+      setStatusMessage(null);
       setError(
-        err instanceof Error ? err.message : "No se pudo iniciar sesión."
+        err instanceof Error
+          ? err.message
+          : "No se pudo iniciar sesión. Si el servidor estaba dormido, espera unos segundos y toca de nuevo."
       );
     } finally {
       setBusyEmail(null);
@@ -116,6 +227,7 @@ function LoginContent() {
   const handleLogin = async (e: FormEvent) => {
     e.preventDefault();
     setError(null);
+    setStatusMessage(null);
     setSubmitting(true);
     try {
       const user = await login(email, password);
@@ -132,6 +244,7 @@ function LoginContent() {
   const handleRegister = async (e: FormEvent) => {
     e.preventDefault();
     setError(null);
+    setStatusMessage(null);
     setSubmitting(true);
     try {
       const user = await register({
@@ -162,14 +275,22 @@ function LoginContent() {
           Ingresa a tu cuenta
         </h1>
         <p className="mt-2 text-lg leading-relaxed text-gray-900">
-          Entra para ver tus puntos y pedidos, o toca una cuenta de prueba con
+          Entra para ver tus puntos y pedidos, o toca un usuario de prueba con
           un solo clic.
         </p>
       </header>
 
+      {statusMessage && (
+        <div className="mt-6 flex items-center gap-3 rounded-2xl border-2 border-sol-500 bg-sol-50 px-5 py-4 text-lg font-bold text-gray-900">
+          <Loader2 className="h-6 w-6 shrink-0 animate-spin text-sol-700" />
+          <span>{statusMessage}</span>
+        </div>
+      )}
+
       {error && (
-        <div className="mt-6 rounded-2xl border-2 border-rose-500 bg-rose-50 px-5 py-4 text-lg font-bold text-rose-900">
-          {error}
+        <div className="mt-6 flex items-start gap-3 rounded-2xl border-2 border-rose-500 bg-rose-50 px-5 py-4 text-lg font-bold text-rose-900">
+          <AlertCircle className="mt-1 h-6 w-6 shrink-0" />
+          <span>{error}</span>
         </div>
       )}
 
@@ -177,50 +298,87 @@ function LoginContent() {
       <div className="mt-8 grid grid-cols-1 gap-8 md:grid-cols-2">
         {/* Bloque 1: Acceso rápido demo en 1 clic */}
         <section className="rounded-3xl border-2 border-stone-300 bg-white p-6 shadow-sm sm:p-8">
-          <h2 className="text-2xl font-black text-gray-900">
-            Entrar en 1 clic (Demo)
-          </h2>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-2xl font-black text-gray-900">
+              Usuarios de prueba (1 clic)
+            </h2>
+            {demoSyncState === "waking" && (
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-sol-500 bg-sol-100 px-3 py-1 text-sm font-extrabold text-gray-900">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Encendiendo servidor...
+              </span>
+            )}
+          </div>
+
           <p className="mt-2 text-base leading-relaxed text-gray-900">
-            Toca un perfil para probar sin escribir clave. Clave manual:{" "}
+            Toca cualquier perfil para entrar sin escribir clave. Clave manual
+            para todos:{" "}
             <code className="rounded bg-stone-200 px-2 py-0.5 font-bold text-gray-900">
               EcoDemo2026!
             </code>
           </p>
 
-          <div className="mt-6 space-y-4">
-            {demoAccounts.map((acc) => {
-              const style = demoBadgeStyle(acc.rol);
-              const Icon = style.Icon;
-              const isLoading = busyEmail === acc.email;
-              return (
-                <button
-                  key={acc.email}
-                  type="button"
-                  disabled={busyEmail !== null}
-                  onClick={() => handleDemoClick(acc.email)}
-                  className={`flex min-h-[72px] w-full items-center gap-4 rounded-2xl border-2 p-4 text-left shadow-sm transition ${style.card} disabled:opacity-60`}
-                >
-                  <span
-                    className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl ${style.pill}`}
+          {demoSyncState === "offline" && (
+            <div className="mt-4 flex flex-col gap-3 rounded-2xl border-2 border-sol-500 bg-sol-50 p-4">
+              <p className="text-base font-bold text-gray-900">
+                El servidor en la nube todavía está encendiendo. Espera unos
+                segundos o toca aquí para verificar:
+              </p>
+              <button
+                type="button"
+                onClick={() => void syncDemoAccounts()}
+                className="eco-btn-amber w-full"
+              >
+                <RefreshCw className="h-5 w-5 shrink-0" />
+                <span>Reintentar conexión</span>
+              </button>
+            </div>
+          )}
+
+          {demoSyncState === "disabled" ? (
+            <p className="mt-5 rounded-2xl border-2 border-stone-200 bg-stone-50 p-5 text-base font-bold text-gray-900">
+              El acceso rápido de prueba está desactivado en este entorno. Usa
+              tu correo y contraseña en el formulario.
+            </p>
+          ) : (
+            <div className="mt-6 space-y-4">
+              {demoAccounts.map((acc) => {
+                const style = demoBadgeStyle(acc.rol);
+                const Icon = style.Icon;
+                const isLoading = busyEmail === acc.email;
+                return (
+                  <button
+                    key={acc.email}
+                    type="button"
+                    disabled={busyEmail !== null}
+                    onClick={() => handleDemoClick(acc.email)}
+                    className={`flex min-h-[82px] w-full items-center gap-4 rounded-2xl border-2 p-4 text-left shadow-sm transition ${style.card} disabled:opacity-60`}
                   >
-                    {isLoading ? (
-                      <Loader2 className="h-6 w-6 animate-spin" />
-                    ) : (
-                      <Icon className="h-6 w-6" />
-                    )}
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-lg font-black text-gray-900">
-                      {acc.etiqueta}
-                    </p>
-                    <p className="truncate text-base font-bold text-gray-800">
-                      {acc.nombre}
-                    </p>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
+                    <span
+                      className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl ${style.pill}`}
+                    >
+                      {isLoading ? (
+                        <Loader2 className="h-6 w-6 animate-spin" />
+                      ) : (
+                        <Icon className="h-6 w-6" />
+                      )}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-lg font-black text-gray-900">
+                        {acc.etiqueta}
+                      </p>
+                      <p className="truncate text-base font-bold text-gray-800">
+                        {acc.nombre}
+                      </p>
+                      <p className="truncate font-mono text-sm font-semibold text-gray-700">
+                        {acc.email}
+                      </p>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </section>
 
         {/* Bloque 2: Formulario manual Ingresar / Crear cuenta */}

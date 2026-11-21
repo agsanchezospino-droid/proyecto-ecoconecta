@@ -20,6 +20,10 @@ import {
   type GuiaResiduo,
   type SolicitudPublicaTrack,
 } from "@/lib/types";
+import {
+  formatWhatsAppDisplayNumber,
+  useWhatsAppPublicNumber,
+} from "@/lib/whatsapp";
 
 const SIMPLE_STEPS = [
   {
@@ -57,6 +61,7 @@ const HERO_AUDIO_TEXT =
   "Paso 4: Pesamos en kilos o libras y sumas puntos.";
 
 export default function HomePage() {
+  const whatsappPublicNumber = useWhatsAppPublicNumber();
   const [guia, setGuia] = useState<GuiaResiduo[]>([]);
   const [trackCode, setTrackCode] = useState("");
   const [trackResult, setTrackResult] = useState<SolicitudPublicaTrack | null>(
@@ -119,6 +124,12 @@ export default function HomePage() {
               size="xl"
               className="w-full"
             />
+            <p className="text-lg font-extrabold text-gray-900">
+              WhatsApp oficial:{" "}
+              <span className="text-huerta-800">
+                {formatWhatsAppDisplayNumber(whatsappPublicNumber)}
+              </span>
+            </p>
             <a href="#guia" className="eco-btn-outline w-full">
               <BookOpen className="h-6 w-6 shrink-0" />
               <span>Ver cómo separar</span>
