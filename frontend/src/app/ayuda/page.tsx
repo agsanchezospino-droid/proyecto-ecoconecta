@@ -266,7 +266,7 @@ export default function AyudaPage() {
                       <ListenButton
                         variant="accent"
                         label="Escuchar respuesta"
-                        text={`${item.question} ${item.answer}`}
+                        text={`${item.question} ... ${item.answer}`}
                       />
                     </div>
                   </div>

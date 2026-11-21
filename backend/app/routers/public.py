@@ -1,6 +1,7 @@
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from pydantic import BaseModel, Field
 from sqlalchemy import func, or_, select, text
 from sqlalchemy.orm import Session, selectinload
 
@@ -25,6 +26,7 @@ from app.schemas.schemas import (
     SolicitudPublicaTrackOut,
 )
 from app.services.solicitudes import serialize_solicitud_publica
+from app.services.tts import synthesize_speech_mp3
 from app.services.whatsapp import (
     DEFAULT_WHATSAPP_PREFILL_TEXT,
     build_whatsapp_deeplink,
@@ -181,3 +183,30 @@ def track_solicitud_public(
             detail=f"No encontramos ninguna solicitud con el código {clean_code}.",
         )
     return serialize_solicitud_publica(solicitud)
+
+
+class TtsRequest(BaseModel):
+    text: str = Field(..., min_length=1, max_length=1000)
+
+
+@router.post("/public/tts")
+async def generate_human_tts(payload: TtsRequest) -> Response:
+    """Sintetiza audio MP3 con voz neuronal colombiana cálida y tranquila para ayudas inclusivas."""
+    try:
+        audio_bytes = await synthesize_speech_mp3(payload.text)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Voz neuronal temporalmente no disponible; usando voz del navegador.",
+        ) from exc
+
+    return Response(
+        content=audio_bytes,
+        media_type="audio/mpeg",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )

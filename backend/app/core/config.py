@@ -43,6 +43,11 @@ class Settings(BaseSettings):
     OPENAI_TRANSCRIBE_MODEL: str = "gpt-4o-mini-transcribe"
     OPENAI_CLASSIFIER_MODEL: str = "gpt-4o-mini"
 
+    # Voz neuronal cálida y tranquila (español de Colombia por defecto)
+    TTS_VOICE: str = "es-CO-SalomeNeural"
+    TTS_RATE: str = "-10%"
+    TTS_PITCH: str = "-2Hz"
+
     POINTS_DISCLAIMER: str = (
         "Valores de puntaje y beneficios referenciales y parametrizables; "
         "sujetos a validación oficial de la Fundación Santo Domingo"

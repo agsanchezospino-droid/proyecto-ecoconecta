@@ -528,3 +528,34 @@ def test_citizen_account_endpoints_for_piloto_hogar_and_new_users(client: TestCl
         assert pts.json()["total_kg"] == 0.0
         assert pts.json()["recolecciones_completadas"] == 0
 
+
+def test_human_tts_normalizer_and_endpoint(client, monkeypatch):
+    from app.routers import public as public_router
+    from app.services.tts import normalize_text_for_speech
+
+    normalized = normalize_text_for_speech("🔊 Ganas 1.5 pts por 3 kg o 2 lb · ¡Muy bien!")
+    assert "puntos" in normalized
+    assert "kilos" in normalized
+    assert "libras" in normalized
+    assert "🔊" not in normalized
+
+    # Texto vacío debe ser rechazado con 422
+    res_empty = client.post("/api/v1/public/tts", json={"text": ""})
+    assert res_empty.status_code == 422
+
+    # Mock rápido de síntesis MP3 para validar contrato HTTP y cabecera audio/mpeg
+    async def fake_synth(text: str) -> bytes:
+        assert "Villas de San Pablo" in text
+        return b"ID3FAKE_MP3_NEURAL_VOICE_BYTES"
+
+    monkeypatch.setattr(public_router, "synthesize_speech_mp3", fake_synth)
+
+    res_ok = client.post(
+        "/api/v1/public/tts",
+        json={"text": "Hola, bienvenido a EcoConecta en Villas de San Pablo."},
+    )
+    assert res_ok.status_code == 200
+    assert res_ok.headers["content-type"].startswith("audio/mpeg")
+    assert res_ok.content.startswith(b"ID3")
+
+

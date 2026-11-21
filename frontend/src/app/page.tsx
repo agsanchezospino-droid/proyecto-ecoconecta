@@ -53,12 +53,13 @@ const SIMPLE_STEPS = [
 ];
 
 const HERO_AUDIO_TEXT =
-  "Recogemos tu reciclaje y orgánicos en Villas de San Pablo. " +
-  "Separa en casa y pide la recogida gratis por WhatsApp, con texto o nota de voz. " +
-  "Paso 1: Separa lo orgánico de lo reciclable en casa. " +
-  "Paso 2: Envía texto o nota de voz por WhatsApp. " +
-  "Paso 3: Acuerda día y hora con el coordinador. " +
-  "Paso 4: Pesamos en kilos o libras y sumas puntos.";
+  "Hola, bienvenido a EcoConecta en Villas de San Pablo. " +
+  "Recogemos tu reciclaje y tus residuos orgánicos directamente en tu casa, totalmente gratis por WhatsApp, con mensaje de texto o nota de voz. " +
+  "Funciona en cuatro pasos muy sencillos. " +
+  "Primero: separa lo orgánico de lo reciclable en casa. " +
+  "Segundo: envíanos un mensaje o una nota de voz por WhatsApp. " +
+  "Tercero: acuerda el día y la hora con el coordinador. " +
+  "Y cuarto: pesamos tus residuos en kilos o libras, y sumas puntos para reclamar beneficios.";
 
 export default function HomePage() {
   const whatsappPublicNumber = useWhatsAppPublicNumber();
