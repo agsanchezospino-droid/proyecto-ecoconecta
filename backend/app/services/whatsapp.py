@@ -105,6 +105,20 @@ class WhatsAppService:
             bin_res.raise_for_status()
             return bin_res.content, mime_type
 
+    def download_twilio_media(
+        self, media_url: str, content_type_hint: str = "audio/ogg"
+    ) -> tuple[bytes, str]:
+        """Descarga un archivo de audio (.ogg) recibido vía Twilio WhatsApp Sandbox."""
+        sid = settings.TWILIO_ACCOUNT_SID.strip()
+        auth_token = settings.TWILIO_AUTH_TOKEN.strip()
+        auth = (sid, auth_token) if sid and auth_token else None
+
+        with httpx.Client(timeout=20.0, follow_redirects=True) as client:
+            res = client.get(media_url, auth=auth)
+            res.raise_for_status()
+            real_mime = res.headers.get("content-type") or content_type_hint or "audio/ogg"
+            return res.content, real_mime
+
     def send_message(
         self,
         db: Session,
@@ -121,6 +135,9 @@ class WhatsAppService:
         )
         token = settings.whatsapp_token
         phone_number_id = settings.WHATSAPP_PHONE_NUMBER_ID.strip()
+        twilio_sid = settings.TWILIO_ACCOUNT_SID.strip()
+        twilio_token = settings.TWILIO_AUTH_TOKEN.strip()
+        twilio_from = settings.twilio_whatsapp_number_clean
 
         modo = "cloud_api"
         estado_envio = "pendiente_credenciales"
@@ -164,6 +181,7 @@ class WhatsAppService:
                         response_json,
                     )
                 respuesta_api = {
+                    "provider": "Meta WhatsApp Business Cloud API",
                     "http_status": response.status_code,
                     "response": response_json,
                 }
@@ -171,14 +189,52 @@ class WhatsAppService:
                 estado_envio = "error"
                 respuesta_api = {"error": str(exc)}
                 logger.exception("Excepción enviando mensaje por WhatsApp Cloud API")
+        elif twilio_sid and twilio_token and twilio_from and phone_e164:
+            modo = "twilio_whatsapp"
+            url = f"https://api.twilio.com/2010-04-01/Accounts/{twilio_sid}/Messages.json"
+            form_data = {
+                "From": f"whatsapp:+{twilio_from}",
+                "To": f"whatsapp:+{phone_e164}",
+                "Body": mensaje,
+            }
+            try:
+                with httpx.Client(timeout=15.0) as client:
+                    response = client.post(
+                        url,
+                        auth=(twilio_sid, twilio_token),
+                        data=form_data,
+                    )
+                try:
+                    response_json = response.json()
+                except Exception:
+                    response_json = {"raw_text": response.text}
+
+                if 200 <= response.status_code < 300:
+                    estado_envio = "enviado"
+                else:
+                    estado_envio = "error"
+                    logger.warning(
+                        "Error enviando Twilio WhatsApp (%s): %s",
+                        response.status_code,
+                        response_json,
+                    )
+                respuesta_api = {
+                    "provider": "Twilio WhatsApp Sandbox",
+                    "http_status": response.status_code,
+                    "response": response_json,
+                }
+            except Exception as exc:
+                estado_envio = "error"
+                respuesta_api = {"provider": "Twilio WhatsApp Sandbox", "error": str(exc)}
+                logger.exception("Excepción enviando mensaje por Twilio WhatsApp")
         else:
             modo = "pendiente_configuracion"
             estado_envio = "pendiente_credenciales"
             respuesta_api = {
-                "provider": "Meta WhatsApp Business Cloud API",
+                "provider": "WhatsApp (Meta Cloud API o Twilio Sandbox)",
                 "reason": (
-                    "Configura WHATSAPP_TOKEN y WHATSAPP_PHONE_NUMBER_ID en .env "
-                    "para despachar mensajes salientes hacia la app móvil de WhatsApp."
+                    "Configura credenciales de Meta Cloud API o Twilio WhatsApp "
+                    "en .env para despachar mensajes salientes hacia la app móvil."
                 ),
                 "to": phone_e164,
                 "event": tipo_evento,

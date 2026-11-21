@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     AUTO_SEED: bool = True
     ENABLE_DEMO_QUICK_LOGIN: bool = True
 
-    # WhatsApp Business Cloud API (Meta) — Canal móvil real exclusivo
+    # WhatsApp Business Cloud API (Meta) — Canal móvil real
     WHATSAPP_PUBLIC_NUMBER: str = ""
     WHATSAPP_API_VERSION: str = "v21.0"
     WHATSAPP_PHONE_NUMBER_ID: str = ""
@@ -37,6 +37,11 @@ class Settings(BaseSettings):
     WHATSAPP_VERIFY_TOKEN: str = "ecoconecta_verify_token_2026"
     WHATSAPP_APP_SECRET: str = ""
     WHATSAPP_DEFAULT_COUNTRY_CODE: str = "57"
+
+    # Twilio WhatsApp Sandbox (alternativa gratuita sin Facebook ni tarjeta)
+    TWILIO_ACCOUNT_SID: str = ""
+    TWILIO_AUTH_TOKEN: str = ""
+    TWILIO_WHATSAPP_NUMBER: str = ""
 
     # OpenAI API (transcripción de notas de voz + clasificación Structured Outputs)
     OPENAI_API_KEY: str = ""
@@ -76,8 +81,32 @@ class Settings(BaseSettings):
         return re.sub(r"\D+", "", self.WHATSAPP_PUBLIC_NUMBER or "")
 
     @property
-    def whatsapp_has_credentials(self) -> bool:
+    def meta_whatsapp_has_credentials(self) -> bool:
         return bool(self.WHATSAPP_PHONE_NUMBER_ID.strip() and self.whatsapp_token)
+
+    @property
+    def twilio_whatsapp_has_credentials(self) -> bool:
+        return bool(
+            self.TWILIO_ACCOUNT_SID.strip()
+            and self.TWILIO_AUTH_TOKEN.strip()
+            and self.twilio_whatsapp_number_clean
+        )
+
+    @property
+    def twilio_whatsapp_number_clean(self) -> str:
+        return re.sub(r"\D+", "", self.TWILIO_WHATSAPP_NUMBER or "")
+
+    @property
+    def whatsapp_provider(self) -> str:
+        if self.meta_whatsapp_has_credentials:
+            return "meta"
+        if self.twilio_whatsapp_has_credentials:
+            return "twilio"
+        return "ninguno"
+
+    @property
+    def whatsapp_has_credentials(self) -> bool:
+        return self.meta_whatsapp_has_credentials or self.twilio_whatsapp_has_credentials
 
     @property
     def whatsapp_effective_mode(self) -> str:

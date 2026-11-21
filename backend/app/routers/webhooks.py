@@ -4,15 +4,16 @@ import logging
 import re
 from typing import Any, Literal, Optional
 import unicodedata
+from xml.sax.saxutils import escape as xml_escape
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import PlainTextResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.database import get_db
-from app.models.entities import SesionWhatsApp, Solicitud
+from app.models.entities import NotificacionWhatsApp, SesionWhatsApp, Solicitud
 from app.services.ai_classifier import (
     ORGANIC_KEYWORDS,
     RECYCLABLE_KEYWORDS,
@@ -25,7 +26,7 @@ from app.services.whatsapp import normalize_phone_e164, whatsapp_service
 
 logger = logging.getLogger("ecoconecta.webhooks")
 
-router = APIRouter(tags=["Webhooks WhatsApp Cloud API"])
+router = APIRouter(tags=["Webhooks WhatsApp (Meta Cloud API & Twilio Sandbox)"])
 
 MENU_BIENVENIDA_TEXT = (
     "¡Hola! Bienvenido a EcoConecta – Villas de San Pablo 🌿♻️\n\n"
@@ -102,10 +103,18 @@ def _is_greeting_or_menu_trigger(text: str) -> bool:
         return False
     if norm in GREETING_EXACT:
         return True
-    # Detecta también el texto prellenado del botón wa.me cuando aún no trae detalle de residuos
-    if norm.startswith("hola") and len(norm.split()) <= 12 and "manzana" not in norm and "casa" not in norm:
+    if (
+        norm.startswith("hola")
+        and len(norm.split()) <= 12
+        and "manzana" not in norm
+        and "casa" not in norm
+    ):
         return True
-    if "quiero pedir una recoleccion" in norm and "manzana" not in norm and "casa" not in norm:
+    if (
+        "quiero pedir una recoleccion" in norm
+        and "manzana" not in norm
+        and "casa" not in norm
+    ):
         return True
     return False
 
@@ -140,6 +149,203 @@ def _get_or_create_session(db: Session, from_phone: str) -> SesionWhatsApp:
         db.add(sesion)
         db.flush()
     return sesion
+
+
+def _process_incoming_whatsapp_event(
+    db: Session,
+    *,
+    from_phone: str,
+    profile_name: Optional[str],
+    msg_id: Optional[str],
+    tipo_origen: Literal["texto", "audio"],
+    text_content: str,
+    media_id: Optional[str] = None,
+    transcription_model: Optional[str] = None,
+    audio_error_detail: Optional[str] = None,
+) -> tuple[dict[str, Any], Optional[str], bool]:
+    """Núcleo compartido del chatbot de WhatsApp (Meta Cloud API + Twilio Sandbox).
+
+    Retorna `(resultado_dict, texto_respuesta_para_usuario, ya_enviado_por_api)`.
+    """
+    # 1. Deduplicación temprana en `solicitudes` por wamid / MessageSid
+    if msg_id:
+        existing_sol = db.scalar(
+            select(Solicitud).where(Solicitud.whatsapp_message_id == msg_id)
+        )
+        if existing_sol:
+            return (
+                {
+                    "action": "solicitud_duplicada",
+                    "solicitud_id": existing_sol.id,
+                    "codigo": existing_sol.codigo,
+                    "flujo": existing_sol.flujo,
+                    "tipo_mensaje": existing_sol.tipo_mensaje_origen,
+                    "duplicado": True,
+                    "usuario_id": existing_sol.usuario_id,
+                },
+                None,
+                True,
+            )
+
+    sesion = _get_or_create_session(db, from_phone)
+
+    # 2. Deduplicación de mensajes de menú ya atendidos en `sesiones_whatsapp`
+    if msg_id and sesion.ultimo_mensaje_id == msg_id:
+        return (
+            {
+                "action": "sesion_duplicada",
+                "sesion_estado": sesion.estado,
+                "duplicado": True,
+            },
+            None,
+            True,
+        )
+
+    # 3. Flujo conversacional del chatbot (menú sencillo 1 / 2 / nota de voz)
+    if tipo_origen == "texto":
+        if _is_greeting_or_menu_trigger(text_content):
+            sesion.estado = "esperando_opcion"
+            sesion.flujo_seleccionado = None
+            sesion.ultimo_mensaje_id = msg_id
+            sesion.datos_temporales = {"ultimo_saludo": text_content[:120]}
+            notif = whatsapp_service.send_message(
+                db,
+                solicitud_id=None,
+                flujo="organico",
+                destinatario_nombre=profile_name or "Vecino",
+                destinatario_telefono=from_phone,
+                tipo_evento="menu_bienvenida",
+                mensaje=MENU_BIENVENIDA_TEXT,
+            )
+            db.commit()
+            return (
+                {
+                    "action": "menu_enviado",
+                    "sesion_id": sesion.id,
+                    "sesion_estado": sesion.estado,
+                    "duplicado": False,
+                },
+                MENU_BIENVENIDA_TEXT,
+                notif.estado_envio == "enviado",
+            )
+
+        selected_flow = _parse_menu_selection(text_content)
+        if selected_flow is not None:
+            sesion.flujo_seleccionado = selected_flow
+            sesion.estado = f"esperando_detalle_{selected_flow}"
+            sesion.ultimo_mensaje_id = msg_id
+            sesion.datos_temporales = {"flujo_elegido": selected_flow}
+            flujo_titulo = (
+                "Orgánicos (Huerteros) 🌿"
+                if selected_flow == "organico"
+                else "Reciclables (Recicladores) ♻️"
+            )
+            reply_msg = (
+                f"¡Perfecto! Elegiste *{flujo_titulo}*.\n\n"
+                "Ahora escríbenos o envíanos una nota de voz con:\n"
+                "• Tu manzana y casa en Villas de San Pablo\n"
+                "• Qué día u horario prefieres para la recolección"
+            )
+            notif = whatsapp_service.send_message(
+                db,
+                solicitud_id=None,
+                flujo=selected_flow,
+                destinatario_nombre=profile_name or "Vecino",
+                destinatario_telefono=from_phone,
+                tipo_evento="menu_opcion_seleccionada",
+                mensaje=reply_msg,
+            )
+            db.commit()
+            return (
+                {
+                    "action": "opcion_seleccionada",
+                    "flujo": selected_flow,
+                    "sesion_id": sesion.id,
+                    "sesion_estado": sesion.estado,
+                    "duplicado": False,
+                },
+                reply_msg,
+                notif.estado_envio == "enviado",
+            )
+
+    # 4. Clasificación del pedido (audio o texto directo / detalle tras menú)
+    session_flow: Optional[Literal["organico", "reciclable"]] = (
+        sesion.flujo_seleccionado
+        if sesion.flujo_seleccionado in ("organico", "reciclable")
+        else None
+    )
+
+    if audio_error_detail:
+        flujo_audio: Literal["organico", "reciclable"] = session_flow or "reciclable"
+        clasificacion = ClasificacionSolicitudIA(
+            flujo=flujo_audio,
+            tipo_generador="hogar",
+            direccion_mencionada=None,
+            resumen_material=(
+                "Nota de voz pendiente de transcripción automática "
+                "(verificar flujo y dirección con el vecino)."
+            ),
+            preferencia_horaria=None,
+            requiere_revision_flujo=session_flow is None,
+            confianza=0.5 if session_flow else 0.0,
+            fuente="audio_pendiente_transcripcion",
+        )
+    else:
+        clasificacion = classify_whatsapp_request(text_content)
+        if session_flow and not _mentions_waste_material(text_content):
+            clasificacion = clasificacion.model_copy(
+                update={
+                    "flujo": session_flow,
+                    "requiere_revision_flujo": False,
+                    "fuente": f"sesion_menu_{session_flow}",
+                }
+            )
+
+    solicitud, created_now = create_solicitud_from_whatsapp(
+        db,
+        from_phone=from_phone,
+        profile_name=profile_name,
+        whatsapp_message_id=msg_id,
+        tipo_mensaje_origen=tipo_origen,
+        mensaje_original=text_content,
+        clasificacion=clasificacion,
+        whatsapp_media_id=media_id,
+        transcription_model=transcription_model,
+        audio_error_detail=audio_error_detail,
+    )
+
+    sesion.usuario_id = solicitud.usuario_id
+    sesion.estado = "inicio"
+    sesion.flujo_seleccionado = None
+    sesion.ultimo_mensaje_id = msg_id
+    sesion.datos_temporales = {"ultima_solicitud_codigo": solicitud.codigo}
+    db.commit()
+
+    last_notif = db.scalar(
+        select(NotificacionWhatsApp)
+        .where(NotificacionWhatsApp.solicitud_id == solicitud.id)
+        .order_by(NotificacionWhatsApp.id.desc())
+        .limit(1)
+    )
+    reply_msg = last_notif.mensaje if last_notif else (
+        f"¡Recibimos tu solicitud en EcoConecta! Código: {solicitud.codigo}."
+    )
+    sent_via_api = bool(last_notif and last_notif.estado_envio == "enviado")
+
+    return (
+        {
+            "action": "solicitud_creada",
+            "solicitud_id": solicitud.id,
+            "codigo": solicitud.codigo,
+            "flujo": solicitud.flujo,
+            "tipo_mensaje": tipo_origen,
+            "pendiente_transcripcion": bool(audio_error_detail),
+            "duplicado": not created_now,
+            "usuario_id": solicitud.usuario_id,
+        },
+        reply_msg,
+        sent_via_api,
+    )
 
 
 @router.get("/api/webhooks/whatsapp")
@@ -183,13 +389,7 @@ async def receive_whatsapp_webhook(
     request: Request,
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
-    """Webhook real de Meta WhatsApp Business Cloud API con chatbot en `sesiones_whatsapp`.
-
-    - Saludo ("Hola"): responde con menú sencillo para adultos mayores (1 Orgánicos, 2 Reciclables, o nota de voz).
-    - Opción 1 o 2: guarda el flujo elegido en `sesiones_whatsapp` y solicita dirección/horario.
-    - Audio o mensaje directo: transcribe (con OpenAI o respaldo seguro), clasifica en `organico` o `reciclable`,
-      guarda en `solicitudes` (código `ECO-YYYY-XXXX`) sin duplicados y confirma por WhatsApp.
-    """
+    """Webhook oficial de Meta WhatsApp Business Cloud API."""
     raw_body = await request.body()
     signature = request.headers.get("X-Hub-Signature-256")
     if not whatsapp_service.verify_webhook_signature(raw_body, signature):
@@ -232,39 +432,7 @@ async def receive_whatsapp_webhook(
                     ignored.append({"id": msg_id, "reason": "missing_sender"})
                     continue
 
-                # 1. Deduplicación temprana en `solicitudes` por wamid
-                if msg_id:
-                    existing_sol = db.scalar(
-                        select(Solicitud).where(Solicitud.whatsapp_message_id == msg_id)
-                    )
-                    if existing_sol:
-                        processed.append(
-                            {
-                                "action": "solicitud_duplicada",
-                                "solicitud_id": existing_sol.id,
-                                "codigo": existing_sol.codigo,
-                                "flujo": existing_sol.flujo,
-                                "tipo_mensaje": existing_sol.tipo_mensaje_origen,
-                                "duplicado": True,
-                                "usuario_id": existing_sol.usuario_id,
-                            }
-                        )
-                        continue
-
-                sesion = _get_or_create_session(db, from_phone)
-
-                # 2. Deduplicación de mensajes de menú ya atendidos en `sesiones_whatsapp`
-                if msg_id and sesion.ultimo_mensaje_id == msg_id:
-                    processed.append(
-                        {
-                            "action": "sesion_duplicada",
-                            "sesion_estado": sesion.estado,
-                            "duplicado": True,
-                        }
-                    )
-                    continue
-
-                tipo_origen = "texto"
+                tipo_origen: Literal["texto", "audio"] = "texto"
                 media_id: Optional[str] = None
                 transcription_model: Optional[str] = None
                 audio_error_detail: Optional[str] = None
@@ -272,7 +440,6 @@ async def receive_whatsapp_webhook(
 
                 if msg_type == "text":
                     text_content = str((msg.get("text") or {}).get("body") or "").strip()
-                    tipo_origen = "texto"
                 elif msg_type in ("audio", "voice"):
                     audio_obj = msg.get("audio") or msg.get("voice") or {}
                     media_id = str(audio_obj.get("id") or "").strip() or None
@@ -312,6 +479,7 @@ async def receive_whatsapp_webhook(
                         reply.get("title") or reply.get("id") or ""
                     ).strip()
                 else:
+                    sesion = _get_or_create_session(db, from_phone)
                     whatsapp_service.send_message(
                         db,
                         solicitud_id=None,
@@ -334,140 +502,18 @@ async def receive_whatsapp_webhook(
                     ignored.append({"id": msg_id, "reason": "empty_text"})
                     continue
 
-                # 3. Flujo conversacional del chatbot (solo para texto/botones, nunca bloquea audios)
-                if tipo_origen == "texto":
-                    if _is_greeting_or_menu_trigger(text_content):
-                        sesion.estado = "esperando_opcion"
-                        sesion.flujo_seleccionado = None
-                        sesion.ultimo_mensaje_id = msg_id
-                        sesion.datos_temporales = {"ultimo_saludo": text_content[:120]}
-                        whatsapp_service.send_message(
-                            db,
-                            solicitud_id=None,
-                            flujo="organico",
-                            destinatario_nombre=profile_name or "Vecino",
-                            destinatario_telefono=from_phone,
-                            tipo_evento="menu_bienvenida",
-                            mensaje=MENU_BIENVENIDA_TEXT,
-                        )
-                        db.commit()
-                        processed.append(
-                            {
-                                "action": "menu_enviado",
-                                "sesion_id": sesion.id,
-                                "sesion_estado": sesion.estado,
-                                "duplicado": False,
-                            }
-                        )
-                        continue
-
-                    selected_flow = _parse_menu_selection(text_content)
-                    if selected_flow is not None:
-                        sesion.flujo_seleccionado = selected_flow
-                        sesion.estado = f"esperando_detalle_{selected_flow}"
-                        sesion.ultimo_mensaje_id = msg_id
-                        sesion.datos_temporales = {"flujo_elegido": selected_flow}
-                        flujo_titulo = (
-                            "Orgánicos (Huerteros) 🌿"
-                            if selected_flow == "organico"
-                            else "Reciclables (Recicladores) ♻️"
-                        )
-                        whatsapp_service.send_message(
-                            db,
-                            solicitud_id=None,
-                            flujo=selected_flow,
-                            destinatario_nombre=profile_name or "Vecino",
-                            destinatario_telefono=from_phone,
-                            tipo_evento="menu_opcion_seleccionada",
-                            mensaje=(
-                                f"¡Perfecto! Elegiste *{flujo_titulo}*.\n\n"
-                                "Ahora escríbenos o envíanos una nota de voz con:\n"
-                                "• Tu manzana y casa en Villas de San Pablo\n"
-                                "• Qué día u horario prefieres para la recolección"
-                            ),
-                        )
-                        db.commit()
-                        processed.append(
-                            {
-                                "action": "opcion_seleccionada",
-                                "flujo": selected_flow,
-                                "sesion_id": sesion.id,
-                                "sesion_estado": sesion.estado,
-                                "duplicado": False,
-                            }
-                        )
-                        continue
-
-                # 4. Clasificación del pedido (audio o texto directo / detalle tras menú)
-                session_flow: Optional[Literal["organico", "reciclable"]] = (
-                    sesion.flujo_seleccionado
-                    if sesion.flujo_seleccionado in ("organico", "reciclable")
-                    else None
-                )
-
-                if audio_error_detail:
-                    flujo_audio: Literal["organico", "reciclable"] = (
-                        session_flow or "reciclable"
-                    )
-                    clasificacion = ClasificacionSolicitudIA(
-                        flujo=flujo_audio,
-                        tipo_generador="hogar",
-                        direccion_mencionada=None,
-                        resumen_material=(
-                            "Nota de voz pendiente de transcripción automática "
-                            "(verificar flujo y dirección con el vecino)."
-                        ),
-                        preferencia_horaria=None,
-                        requiere_revision_flujo=session_flow is None,
-                        confianza=0.5 if session_flow else 0.0,
-                        fuente="audio_pendiente_transcripcion",
-                    )
-                else:
-                    clasificacion = classify_whatsapp_request(text_content)
-                    # Si el usuario ya eligió 1 (Orgánicos) o 2 (Reciclables) en el menú y ahora
-                    # solo escribió su dirección/horario, respetamos su elección de sesión.
-                    if session_flow and not _mentions_waste_material(text_content):
-                        clasificacion = clasificacion.model_copy(
-                            update={
-                                "flujo": session_flow,
-                                "requiere_revision_flujo": False,
-                                "fuente": f"sesion_menu_{session_flow}",
-                            }
-                        )
-
-                solicitud, created_now = create_solicitud_from_whatsapp(
+                item_result, _, _ = _process_incoming_whatsapp_event(
                     db,
                     from_phone=from_phone,
                     profile_name=profile_name,
-                    whatsapp_message_id=msg_id,
-                    tipo_mensaje_origen=tipo_origen,
-                    mensaje_original=text_content,
-                    clasificacion=clasificacion,
-                    whatsapp_media_id=media_id,
+                    msg_id=msg_id,
+                    tipo_origen=tipo_origen,
+                    text_content=text_content,
+                    media_id=media_id,
                     transcription_model=transcription_model,
                     audio_error_detail=audio_error_detail,
                 )
-
-                # Cierra/reinicia la sesión conversacional tras guardar la solicitud
-                sesion.usuario_id = solicitud.usuario_id
-                sesion.estado = "inicio"
-                sesion.flujo_seleccionado = None
-                sesion.ultimo_mensaje_id = msg_id
-                sesion.datos_temporales = {"ultima_solicitud_codigo": solicitud.codigo}
-                db.commit()
-
-                processed.append(
-                    {
-                        "action": "solicitud_creada",
-                        "solicitud_id": solicitud.id,
-                        "codigo": solicitud.codigo,
-                        "flujo": solicitud.flujo,
-                        "tipo_mensaje": tipo_origen,
-                        "pendiente_transcripcion": bool(audio_error_detail),
-                        "duplicado": not created_now,
-                        "usuario_id": solicitud.usuario_id,
-                    }
-                )
+                processed.append(item_result)
 
     return {
         "status": "ok",
@@ -475,3 +521,94 @@ async def receive_whatsapp_webhook(
         "processed": processed,
         "ignored": ignored,
     }
+
+
+def _twiml_response(message: Optional[str] = None) -> Response:
+    if message:
+        xml = (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            f"<Response><Message>{xml_escape(message)}</Message></Response>"
+        )
+    else:
+        xml = '<?xml version="1.0" encoding="UTF-8"?><Response></Response>'
+    return Response(content=xml, media_type="application/xml", status_code=200)
+
+
+@router.post("/api/webhooks/twilio-whatsapp")
+async def receive_twilio_whatsapp_webhook(
+    request: Request,
+    db: Session = Depends(get_db),
+) -> Response:
+    """Webhook real de Twilio WhatsApp Sandbox (gratuito, sin Facebook ni tarjeta).
+
+    Configurar en Twilio Console -> Messaging -> Try it out -> Send a WhatsApp message -> Sandbox settings:
+      When a message comes in (POST): https://ecoconecta-backend.onrender.com/api/webhooks/twilio-whatsapp
+    """
+    form = await request.form()
+    raw_from = str(form.get("From") or "").strip()
+    from_phone = re.sub(r"^whatsapp:", "", raw_from, flags=re.I).strip()
+    profile_name = str(form.get("ProfileName") or "").strip() or None
+    msg_id = str(form.get("MessageSid") or form.get("SmsMessageSid") or "").strip() or None
+    body_text = str(form.get("Body") or "").strip()
+    num_media = int(str(form.get("NumMedia") or "0") or "0")
+
+    if not from_phone:
+        return _twiml_response()
+
+    tipo_origen: Literal["texto", "audio"] = "texto"
+    media_id: Optional[str] = None
+    transcription_model: Optional[str] = None
+    audio_error_detail: Optional[str] = None
+    text_content = body_text
+
+    if num_media > 0:
+        media_url = str(form.get("MediaUrl0") or "").strip()
+        media_mime = str(form.get("MediaContentType0") or "audio/ogg").strip().lower()
+        if media_mime.startswith("audio/") or "ogg" in media_mime or "opus" in media_mime:
+            tipo_origen = "audio"
+            media_id = (media_url.rsplit("/", 1)[-1] if media_url else msg_id or "twilio_audio")[:120]
+            try:
+                audio_bytes, real_mime = whatsapp_service.download_twilio_media(
+                    media_url, media_mime
+                )
+                text_content, transcription_model = transcribe_audio_spanish(
+                    audio_bytes, real_mime or media_mime
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Audio Twilio WhatsApp %s guardado pendiente de transcripción (%s)",
+                    media_id,
+                    exc,
+                )
+                audio_error_detail = str(exc)
+                transcription_model = "pendiente_transcripcion"
+                text_content = (
+                    "[Nota de voz recibida por WhatsApp — pendiente de "
+                    "transcripción automática. Revisar el audio en WhatsApp o "
+                    "confirmar el detalle con el vecino.]"
+                )
+        elif not text_content:
+            return _twiml_response(
+                "Hola, en EcoConecta – Villas de San Pablo recibimos solicitudes "
+                "por mensaje de texto o nota de voz.\n\n"
+                "Responde *1* para Orgánicos, *2* para Reciclables, o envíanos una nota de voz."
+            )
+
+    if not text_content:
+        return _twiml_response(MENU_BIENVENIDA_TEXT)
+
+    _, reply_msg, sent_via_api = _process_incoming_whatsapp_event(
+        db,
+        from_phone=from_phone,
+        profile_name=profile_name,
+        msg_id=msg_id,
+        tipo_origen=tipo_origen,
+        text_content=text_content,
+        media_id=media_id,
+        transcription_model=transcription_model,
+        audio_error_detail=audio_error_detail,
+    )
+
+    # Si ya se envió por API REST (Twilio/Meta), devolvemos TwiML vacío para no duplicar.
+    # Si aún no hay tokens REST configurados, devolvemos la respuesta en TwiML y Twilio responde al instante.
+    return _twiml_response(None if sent_via_api else reply_msg)

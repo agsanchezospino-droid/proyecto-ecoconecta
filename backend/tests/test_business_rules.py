@@ -862,6 +862,84 @@ def test_whatsapp_chatbot_greeting_menu_sessions_and_end_to_end_closure(client):
     assert close_r.json()["registro_recoleccion"]["puntos_calculados"] == 3.0
 
 
+def test_twilio_whatsapp_sandbox_webhook_menu_order_and_audio(client):
+    """Prueba end-to-end del webhook Twilio WhatsApp Sandbox (/api/webhooks/twilio-whatsapp):
+    - Saludo 'Hola' -> TwiML con menú 1/2/nota de voz
+    - Pedido directo orgánico -> guarda en PostgreSQL, visible en /coordinacion, responde código ECO-
+    - Audio .ogg -> guardado sin perderse (tipo_mensaje_origen='audio')
+    """
+    h_huerta = auth_headers(client, "coord.huerta@villas.demo")
+    phone = f"57319{uuid.uuid4().int % 10000000:07d}"
+
+    # 1. Saludo "Hola" vía Twilio (application/x-www-form-urlencoded)
+    res_hola = client.post(
+        "/api/webhooks/twilio-whatsapp",
+        data={
+            "From": f"whatsapp:+{phone}",
+            "ProfileName": "Doña Beatriz",
+            "Body": "Hola",
+            "MessageSid": f"SMhola{uuid.uuid4().hex[:16]}",
+            "NumMedia": "0",
+        },
+    )
+    assert res_hola.status_code == 200, res_hola.text
+    assert "application/xml" in res_hola.headers["content-type"]
+    assert "<Message>" in res_hola.text
+    assert "Orgánicos" in res_hola.text
+    assert "Reciclables" in res_hola.text
+
+    # 2. Mensaje directo orgánico -> crea solicitud + devuelve código ECO- en TwiML
+    sid_org = f"SMorg{uuid.uuid4().hex[:16]}"
+    res_org = client.post(
+        "/api/webhooks/twilio-whatsapp",
+        data={
+            "From": f"whatsapp:+{phone}",
+            "ProfileName": "Doña Beatriz",
+            "Body": "Tengo cáscaras de frutas y café en Manzana 11 Casa 6 para mañana",
+            "MessageSid": sid_org,
+            "NumMedia": "0",
+        },
+    )
+    assert res_org.status_code == 200, res_org.text
+    assert "ECO-" in res_org.text
+
+    # Reenvío duplicado con mismo MessageSid -> TwiML vacío sin duplicar solicitud
+    res_org_dup = client.post(
+        "/api/webhooks/twilio-whatsapp",
+        data={
+            "From": f"whatsapp:+{phone}",
+            "ProfileName": "Doña Beatriz",
+            "Body": "Tengo cáscaras de frutas y café en Manzana 11 Casa 6 para mañana",
+            "MessageSid": sid_org,
+            "NumMedia": "0",
+        },
+    )
+    assert res_org_dup.status_code == 200
+    assert "<Message>" not in res_org_dup.text
+
+    # Confirmar que aparece en la bandeja del Coordinador de Huerteros
+    bandeja_h = client.get("/api/v1/coordinacion/solicitudes", headers=h_huerta)
+    assert bandeja_h.status_code == 200
+    assert any("Doña Beatriz" in s["nombre_solicitante"] for s in bandeja_h.json())
+
+    # 3. Nota de voz (.ogg) vía Twilio -> guardada en PostgreSQL sin perderse
+    res_audio = client.post(
+        "/api/webhooks/twilio-whatsapp",
+        data={
+            "From": f"whatsapp:+{phone}",
+            "ProfileName": "Doña Beatriz",
+            "Body": "",
+            "MessageSid": f"SMaud{uuid.uuid4().hex[:16]}",
+            "NumMedia": "1",
+            "MediaUrl0": "https://api.twilio.com/2010-04-01/Accounts/AC_TEST/Messages/MM1/Media/ME1",
+            "MediaContentType0": "audio/ogg",
+        },
+    )
+    assert res_audio.status_code == 200, res_audio.text
+    assert "ECO-" in res_audio.text
+
+
+
 
 
 
