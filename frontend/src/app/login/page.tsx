@@ -3,6 +3,7 @@
 import {
   AlertCircle,
   Building2,
+  CheckCircle2,
   Home,
   KeyRound,
   Leaf,
@@ -14,7 +15,14 @@ import {
   UserPlus,
 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { FormEvent, Suspense, useCallback, useEffect, useState } from "react";
+import {
+  FormEvent,
+  Suspense,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 
 import BackToHomeButton from "@/components/BackToHomeButton";
 import { useAuth } from "@/context/AuthContext";
@@ -70,7 +78,12 @@ function sleep(ms: number): Promise<void> {
 
 function isTransientWakeupError(err: unknown): boolean {
   if (err instanceof ApiError) {
-    return err.status === 502 || err.status === 503 || err.status === 504;
+    return (
+      err.status === 502 ||
+      err.status === 503 ||
+      err.status === 504 ||
+      err.status === 408
+    );
   }
   return err instanceof TypeError;
 }
@@ -142,6 +155,7 @@ function LoginContent() {
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const mountedRef = useRef(true);
 
   // Login fields
   const [email, setEmail] = useState("");
@@ -155,15 +169,25 @@ function LoginContent() {
   const [regTelefono, setRegTelefono] = useState("");
   const [regDireccion, setRegDireccion] = useState("");
 
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  // Reintenta hasta ~75 segundos para cubrir por completo el arranque en frío del plan gratuito de Render
   const syncDemoAccounts = useCallback(async () => {
     setDemoSyncState("checking");
-    const maxAttempts = 4;
+    const maxAttempts = 12;
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      if (!mountedRef.current) return;
       try {
         const live = await apiFetch<DemoAccount[]>("/auth/demo-accounts", {
           auth: false,
         });
+        if (!mountedRef.current) return;
         if (live.length === 0) {
           setDemoAccounts([]);
           setDemoSyncState("disabled");
@@ -173,11 +197,11 @@ function LoginContent() {
         }
         return;
       } catch {
+        if (!mountedRef.current) return;
         if (attempt < maxAttempts) {
           setDemoSyncState("waking");
-          await sleep(attempt * 3000);
+          await sleep(5000);
         } else {
-          // Conserva los 5 botones precargados + muestra aviso claro para reintentar
           setDemoAccounts(DEFAULT_DEMO_ACCOUNTS);
           setDemoSyncState("offline");
         }
@@ -194,19 +218,22 @@ function LoginContent() {
     setStatusMessage(null);
     setBusyEmail(demoEmail);
     try {
-      const maxAttempts = 3;
+      // Hasta ~60 segundos de espera automática si Render Free Tier estaba dormido
+      const maxAttempts = 10;
       for (let attempt = 1; attempt <= maxAttempts; attempt++) {
         try {
           const user = await demoLogin(demoEmail);
           setStatusMessage(null);
+          setDemoSyncState("ready");
           router.push(roleRedirect(user, nextPath));
           return;
         } catch (err) {
           if (isTransientWakeupError(err) && attempt < maxAttempts) {
+            setDemoSyncState("waking");
             setStatusMessage(
-              "El servidor en la nube está encendiendo (tarda ~25 segundos). Reintentando automáticamente..."
+              `El servidor gratuito de Render está encendiendo (tarda 25 a 50 segundos la primera vez). Reintentando automáticamente (${attempt}/${maxAttempts - 1})...`
             );
-            await sleep(4000);
+            await sleep(5000);
             continue;
           }
           throw err;
@@ -217,7 +244,7 @@ function LoginContent() {
       setError(
         err instanceof Error
           ? err.message
-          : "No se pudo iniciar sesión. Si el servidor estaba dormido, espera unos segundos y toca de nuevo."
+          : "El servidor tardó demasiado en responder. Toca 'Reintentar conexión' y prueba de nuevo."
       );
     } finally {
       setBusyEmail(null);
@@ -230,9 +257,28 @@ function LoginContent() {
     setStatusMessage(null);
     setSubmitting(true);
     try {
-      const user = await login(email, password);
-      router.push(roleRedirect(user, nextPath));
+      const maxAttempts = 8;
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+          const user = await login(email, password);
+          setStatusMessage(null);
+          setDemoSyncState("ready");
+          router.push(roleRedirect(user, nextPath));
+          return;
+        } catch (err) {
+          if (isTransientWakeupError(err) && attempt < maxAttempts) {
+            setDemoSyncState("waking");
+            setStatusMessage(
+              `Encendiendo el servidor en Render... reintentando inicio de sesión (${attempt}/${maxAttempts - 1}).`
+            );
+            await sleep(5000);
+            continue;
+          }
+          throw err;
+        }
+      }
     } catch (err) {
+      setStatusMessage(null);
       setError(
         err instanceof Error ? err.message : "Error al iniciar sesión."
       );
@@ -308,6 +354,12 @@ function LoginContent() {
                 Encendiendo servidor...
               </span>
             )}
+            {demoSyncState === "ready" && (
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-huerta-500 bg-huerta-100 px-3 py-1 text-sm font-extrabold text-huerta-900">
+                <CheckCircle2 className="h-4 w-4" />
+                Servidor listo
+              </span>
+            )}
           </div>
 
           <p className="mt-2 text-base leading-relaxed text-gray-900">
@@ -317,6 +369,14 @@ function LoginContent() {
               EcoDemo2026!
             </code>
           </p>
+
+          {demoSyncState === "waking" && (
+            <p className="mt-4 rounded-2xl border-2 border-sol-400 bg-sol-50 px-4 py-3 text-base font-bold text-gray-900">
+              El servidor gratuito en Render estaba en reposo y se está
+              encendiendo (tarda 25 a 50 segundos). Puedes tocar tu perfil y
+              entrará automáticamente apenas termine.
+            </p>
+          )}
 
           {demoSyncState === "offline" && (
             <div className="mt-4 flex flex-col gap-3 rounded-2xl border-2 border-sol-500 bg-sol-50 p-4">

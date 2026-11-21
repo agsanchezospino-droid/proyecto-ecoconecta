@@ -9,7 +9,12 @@ import React, {
   useState,
 } from "react";
 
-import { apiFetch, getStoredToken, setStoredToken } from "@/lib/api";
+import {
+  ApiError,
+  apiFetch,
+  getStoredToken,
+  setStoredToken,
+} from "@/lib/api";
 import type { AuthResponse, FlujoResiduo, Usuario } from "@/lib/types";
 
 interface RegisterInput {
@@ -41,6 +46,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<Usuario | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
 
+  // Despierta silenciosamente el backend (Render Free Tier) apenas se abre cualquier página
+  useEffect(() => {
+    void apiFetch("/health", { auth: false }).catch(() => {
+      // Silencioso: solo sirve para iniciar el arranque en frío del backend
+    });
+  }, []);
+
   const refreshUser = useCallback(async (): Promise<Usuario | null> => {
     const token = getStoredToken();
     if (!token) {
@@ -56,8 +68,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
       setUser(me);
       return me;
-    } catch {
-      if (getStoredToken() === token) {
+    } catch (err) {
+      // Solo borra la sesión si el token realmente expiró o fue rechazado (401/403),
+      // nunca ante un 502/503 temporal mientras Render despierta el servidor.
+      const isAuthRejected =
+        err instanceof ApiError && (err.status === 401 || err.status === 403);
+      if (isAuthRejected && getStoredToken() === token) {
         setStoredToken(null);
         setUser(null);
       }

@@ -186,11 +186,10 @@ export default function CoordinatorConsole() {
     Record<number, string>
   >({});
 
-  // Add collective member form
+  // Add collective member form (exclusivo de coordinadores)
   const [newMemberName, setNewMemberName] = useState("");
   const [newMemberRole, setNewMemberRole] = useState("");
   const [newMemberZone, setNewMemberZone] = useState("Villas de San Pablo");
-  const [newMemberFlow, setNewMemberFlow] = useState<FlujoResiduo>("organico");
 
   // Admin rules drafts (kg & lb)
   const [ruleDrafts, setRuleDrafts] = useState<
@@ -644,7 +643,7 @@ export default function CoordinatorConsole() {
 
   const handleAddMember = async (e: FormEvent) => {
     e.preventDefault();
-    if (!newMemberName.trim()) return;
+    if (isAdmin || !newMemberName.trim()) return;
     setActionBusy(true);
     setBanner(null);
     try {
@@ -654,11 +653,10 @@ export default function CoordinatorConsole() {
           nombre: newMemberName.trim(),
           rol_interno:
             newMemberRole.trim() ||
-            ((coordinatorFlow || newMemberFlow) === "organico"
+            (coordinatorFlow === "organico"
               ? "Huertero comunitario"
               : "Reciclador de oficio"),
           zona_cobertura: newMemberZone.trim() || "Villas de San Pablo",
-          flujo: isAdmin ? newMemberFlow : undefined,
         }),
       });
       setNewMemberName("");
@@ -823,7 +821,9 @@ export default function CoordinatorConsole() {
     },
     {
       id: "colectivo",
-      label: `Mi Colectivo (${colectivo.length})`,
+      label: isAdmin
+        ? `Equipos de Recolectores (${colectivo.length})`
+        : `Mi Colectivo (${colectivo.length})`,
       Icon: Users,
     },
     ...(isAdmin
@@ -2352,118 +2352,203 @@ export default function CoordinatorConsole() {
         </div>
       )}
 
-      {/* TAB 5: MI COLECTIVO (INTERNO) */}
-      {activeTab === "colectivo" && (
-        <div className="mt-6 grid gap-6 lg:grid-cols-12">
-          <div className="space-y-3 lg:col-span-7">
-            <div className="rounded-2xl border border-stone-200 bg-stone-50 p-4 text-xs text-stone-700">
-              <strong>Listado interno del colectivo:</strong> Este equipo solo
-              es gestionado por su coordinador en <code>/coordinacion</code> y
-              sus datos de contacto jamás se exponen a los usuarios
-              solicitantes.
+      {/* TAB 5: MI COLECTIVO (INTERNO) — SOLO LECTURA PARA ADMINISTRADOR */}
+      {activeTab === "colectivo" &&
+        (isAdmin ? (
+          <div className="mt-6 space-y-6">
+            <div className="rounded-2xl border-2 border-stone-300 bg-stone-50 p-5 text-base font-semibold text-gray-900">
+              <strong>Vista de solo lectura (Administrador Comunitario):</strong>{" "}
+              Puedes consultar el equipo completo de <strong>Huerteros</strong> y
+              de <strong>Recicladores</strong>. Registrar nuevos recolectores es
+              una función exclusiva de cada coordinador.
             </div>
-            {colectivo.map((m) => (
-              <div
-                key={m.id}
-                className="eco-card flex items-center justify-between gap-3 p-4"
-              >
-                <div className="flex items-center gap-3">
-                  <span
-                    className={`flex h-10 w-10 items-center justify-center rounded-xl ${
-                      m.flujo === "organico"
-                        ? "bg-huerta-100 text-huerta-700"
-                        : "bg-reciclaje-100 text-reciclaje-700"
-                    }`}
-                  >
-                    {m.flujo === "organico" ? (
-                      <Leaf className="h-5 w-5" />
-                    ) : (
-                      <Recycle className="h-5 w-5" />
-                    )}
-                  </span>
-                  <div>
-                    <p className="font-extrabold text-stone-900">{m.nombre}</p>
-                    <p className="text-xs text-stone-600">
-                      {m.rol_interno} · Zona: {m.zona_cobertura || "General"}
-                    </p>
-                  </div>
-                </div>
-                <FlujoBadge flujo={m.flujo} />
-              </div>
-            ))}
-          </div>
 
-          <form
-            onSubmit={handleAddMember}
-            className="eco-card h-fit space-y-4 p-5 lg:col-span-5"
-          >
-            <h3 className="flex items-center gap-2 text-base font-extrabold text-stone-900">
-              <Plus className="h-5 w-5 text-huerta-600" />
-              Registrar integrante del colectivo
-            </h3>
-            {isAdmin && (
-              <div>
-                <label className="mb-1 block text-xs font-bold text-stone-700">
-                  Flujo del colectivo
-                </label>
-                <select
-                  value={newMemberFlow}
-                  onChange={(e) =>
-                    setNewMemberFlow(e.target.value as FlujoResiduo)
-                  }
-                  className="eco-input py-2.5 text-sm"
-                >
-                  <option value="organico">Orgánico (Huerteros)</option>
-                  <option value="reciclable">Reciclable (Recicladores)</option>
-                </select>
+            <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+              {/* Equipo de Huerteros (Orgánicos) */}
+              <section className="space-y-4">
+                <div className="flex items-center justify-between gap-2 rounded-2xl border-2 border-huerta-400 bg-huerta-50 px-5 py-3.5">
+                  <h3 className="flex items-center gap-2 text-lg font-black text-huerta-900">
+                    <Leaf className="h-6 w-6 text-huerta-700" />
+                    <span>Equipo de Huerteros (Orgánicos)</span>
+                  </h3>
+                  <span className="rounded-full bg-huerta-700 px-3 py-1 text-sm font-extrabold text-white">
+                    {colectivo.filter((m) => m.flujo === "organico").length}
+                  </span>
+                </div>
+
+                {colectivo.filter((m) => m.flujo === "organico").length === 0 ? (
+                  <div className="eco-card p-6 text-center text-base font-semibold text-gray-700">
+                    No hay integrantes de Huerteros visibles con el filtro actual.
+                  </div>
+                ) : (
+                  colectivo
+                    .filter((m) => m.flujo === "organico")
+                    .map((m) => (
+                      <div
+                        key={m.id}
+                        className="eco-card flex items-center justify-between gap-3 p-4"
+                      >
+                        <div className="flex items-center gap-3">
+                          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-huerta-100 text-huerta-700">
+                            <Leaf className="h-5 w-5" />
+                          </span>
+                          <div>
+                            <p className="text-base font-extrabold text-gray-900">
+                              {m.nombre}
+                            </p>
+                            <p className="text-sm font-semibold text-gray-700">
+                              {m.rol_interno} · Zona:{" "}
+                              {m.zona_cobertura || "General"}
+                            </p>
+                          </div>
+                        </div>
+                        <FlujoBadge flujo={m.flujo} />
+                      </div>
+                    ))
+                )}
+              </section>
+
+              {/* Equipo de Recicladores (Reciclables) */}
+              <section className="space-y-4">
+                <div className="flex items-center justify-between gap-2 rounded-2xl border-2 border-reciclaje-400 bg-reciclaje-50 px-5 py-3.5">
+                  <h3 className="flex items-center gap-2 text-lg font-black text-reciclaje-900">
+                    <Recycle className="h-6 w-6 text-reciclaje-700" />
+                    <span>Equipo de Recicladores (Reciclables)</span>
+                  </h3>
+                  <span className="rounded-full bg-reciclaje-700 px-3 py-1 text-sm font-extrabold text-white">
+                    {colectivo.filter((m) => m.flujo === "reciclable").length}
+                  </span>
+                </div>
+
+                {colectivo.filter((m) => m.flujo === "reciclable").length ===
+                0 ? (
+                  <div className="eco-card p-6 text-center text-base font-semibold text-gray-700">
+                    No hay integrantes de Recicladores visibles con el filtro
+                    actual.
+                  </div>
+                ) : (
+                  colectivo
+                    .filter((m) => m.flujo === "reciclable")
+                    .map((m) => (
+                      <div
+                        key={m.id}
+                        className="eco-card flex items-center justify-between gap-3 p-4"
+                      >
+                        <div className="flex items-center gap-3">
+                          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-reciclaje-100 text-reciclaje-700">
+                            <Recycle className="h-5 w-5" />
+                          </span>
+                          <div>
+                            <p className="text-base font-extrabold text-gray-900">
+                              {m.nombre}
+                            </p>
+                            <p className="text-sm font-semibold text-gray-700">
+                              {m.rol_interno} · Zona:{" "}
+                              {m.zona_cobertura || "General"}
+                            </p>
+                          </div>
+                        </div>
+                        <FlujoBadge flujo={m.flujo} />
+                      </div>
+                    ))
+                )}
+              </section>
+            </div>
+          </div>
+        ) : (
+          <div className="mt-6 grid gap-6 lg:grid-cols-12">
+            <div className="space-y-3 lg:col-span-7">
+              <div className="rounded-2xl border border-stone-200 bg-stone-50 p-4 text-sm font-semibold text-gray-800">
+                <strong>Listado interno del colectivo:</strong> Este equipo solo
+                es gestionado por su coordinador en <code>/coordinacion</code> y
+                sus datos de contacto jamás se exponen a los usuarios
+                solicitantes.
               </div>
-            )}
-            <div>
-              <label className="mb-1 block text-xs font-bold text-stone-700">
-                Nombre completo *
-              </label>
-              <input
-                type="text"
-                required
-                value={newMemberName}
-                onChange={(e) => setNewMemberName(e.target.value)}
-                placeholder="Ej: Pedro José Villa"
-                className="eco-input py-2.5 text-sm"
-              />
+              {colectivo.map((m) => (
+                <div
+                  key={m.id}
+                  className="eco-card flex items-center justify-between gap-3 p-4"
+                >
+                  <div className="flex items-center gap-3">
+                    <span
+                      className={`flex h-10 w-10 items-center justify-center rounded-xl ${
+                        m.flujo === "organico"
+                          ? "bg-huerta-100 text-huerta-700"
+                          : "bg-reciclaje-100 text-reciclaje-700"
+                      }`}
+                    >
+                      {m.flujo === "organico" ? (
+                        <Leaf className="h-5 w-5" />
+                      ) : (
+                        <Recycle className="h-5 w-5" />
+                      )}
+                    </span>
+                    <div>
+                      <p className="font-extrabold text-gray-900">{m.nombre}</p>
+                      <p className="text-sm text-gray-700">
+                        {m.rol_interno} · Zona: {m.zona_cobertura || "General"}
+                      </p>
+                    </div>
+                  </div>
+                  <FlujoBadge flujo={m.flujo} />
+                </div>
+              ))}
             </div>
-            <div>
-              <label className="mb-1 block text-xs font-bold text-stone-700">
-                Rol interno
-              </label>
-              <input
-                type="text"
-                value={newMemberRole}
-                onChange={(e) => setNewMemberRole(e.target.value)}
-                placeholder="Ej: Huertero comunitario / Reciclador de oficio"
-                className="eco-input py-2.5 text-sm"
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs font-bold text-stone-700">
-                Zona de cobertura
-              </label>
-              <input
-                type="text"
-                value={newMemberZone}
-                onChange={(e) => setNewMemberZone(e.target.value)}
-                className="eco-input py-2.5 text-sm"
-              />
-            </div>
-            <button
-              type="submit"
-              disabled={actionBusy}
-              className="eco-btn-primary w-full text-sm"
+
+            <form
+              onSubmit={handleAddMember}
+              className="eco-card h-fit space-y-4 p-5 lg:col-span-5"
             >
-              Guardar integrante
-            </button>
-          </form>
-        </div>
-      )}
+              <h3 className="flex items-center gap-2 text-base font-extrabold text-gray-900">
+                <Plus className="h-5 w-5 text-huerta-600" />
+                Registrar integrante del colectivo
+              </h3>
+              <div>
+                <label className="mb-1 block text-sm font-bold text-gray-800">
+                  Nombre completo *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={newMemberName}
+                  onChange={(e) => setNewMemberName(e.target.value)}
+                  placeholder="Ej: Pedro José Villa"
+                  className="eco-input py-2.5 text-base"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-bold text-gray-800">
+                  Rol interno
+                </label>
+                <input
+                  type="text"
+                  value={newMemberRole}
+                  onChange={(e) => setNewMemberRole(e.target.value)}
+                  placeholder="Ej: Huertero comunitario / Reciclador de oficio"
+                  className="eco-input py-2.5 text-base"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-bold text-gray-800">
+                  Zona de cobertura
+                </label>
+                <input
+                  type="text"
+                  value={newMemberZone}
+                  onChange={(e) => setNewMemberZone(e.target.value)}
+                  className="eco-input py-2.5 text-base"
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={actionBusy}
+                className="eco-btn-primary w-full text-base"
+              >
+                Guardar integrante
+              </button>
+            </form>
+          </div>
+        ))}
 
       {/* TAB 6: ADMINISTRACIÓN (RN-06 REGLAS KG/LB + CATÁLOGO BENEFICIOS + RN-08 PILOTO) */}
       {activeTab === "admin" && isAdmin && (

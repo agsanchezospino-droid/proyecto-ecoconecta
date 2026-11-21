@@ -605,4 +605,59 @@ def test_whatsapp_audio_saved_even_when_transcription_unavailable(client):
     assert "pendiente de transcripción" in det["mensaje_original"].lower()
 
 
+def test_admin_views_both_collectives_readonly_and_cannot_add_member(client):
+    """El Administrador Comunitario puede ver Huerteros y Recicladores en solo lectura,
+    pero NO puede añadir recolectores (403); esa acción es exclusiva de los coordinadores.
+    """
+    h_admin = auth_headers(client, "admin@villas.demo")
+    h_huerta = auth_headers(client, "coord.huerta@villas.demo")
+    h_reciclaje = auth_headers(client, "coord.reciclaje@villas.demo")
+
+    # 1. Admin puede consultar el listado y ver ambos equipos (orgánico + reciclable)
+    list_admin = client.get("/api/v1/coordinacion/colectivo", headers=h_admin)
+    assert list_admin.status_code == 200, list_admin.text
+    flujos_vistos = {m["flujo"] for m in list_admin.json()}
+    assert {"organico", "reciclable"}.issubset(flujos_vistos)
+
+    # 2. Admin NO puede añadir integrantes a ningún colectivo -> 403 Forbidden
+    for flujo_intento in ("organico", "reciclable"):
+        denied = client.post(
+            "/api/v1/coordinacion/colectivo",
+            headers=h_admin,
+            json={
+                "nombre": f"Intento Admin {flujo_intento}",
+                "rol_interno": "Recolector",
+                "zona_cobertura": "Villas de San Pablo",
+                "flujo": flujo_intento,
+            },
+        )
+        assert denied.status_code == 403, denied.text
+
+    # 3. Coordinadores SÍ pueden añadir integrantes únicamente en su propio flujo
+    ok_huerta = client.post(
+        "/api/v1/coordinacion/colectivo",
+        headers=h_huerta,
+        json={
+            "nombre": f"Huertero Prueba {uuid.uuid4().hex[:6]}",
+            "rol_interno": "Huertero comunitario",
+            "zona_cobertura": "Etapa 1",
+        },
+    )
+    assert ok_huerta.status_code == 201, ok_huerta.text
+    assert ok_huerta.json()["flujo"] == "organico"
+
+    ok_rec = client.post(
+        "/api/v1/coordinacion/colectivo",
+        headers=h_reciclaje,
+        json={
+            "nombre": f"Reciclador Prueba {uuid.uuid4().hex[:6]}",
+            "rol_interno": "Reciclador de oficio",
+            "zona_cobertura": "Etapa 2",
+        },
+    )
+    assert ok_rec.status_code == 201, ok_rec.text
+    assert ok_rec.json()["flujo"] == "reciclable"
+
+
+
 

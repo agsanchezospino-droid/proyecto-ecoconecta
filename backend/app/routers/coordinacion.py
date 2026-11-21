@@ -436,12 +436,16 @@ def agregar_integrante_colectivo(
     db: Session = Depends(get_db),
 ) -> IntegranteOut:
     coord_flow = get_coordinator_flow(current_user)
-    target_flow = coord_flow if coord_flow is not None else payload.flujo
-    if target_flow not in ("organico", "reciclable"):
+    if coord_flow is None:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Debes especificar el flujo ('organico' o 'reciclable') para el integrante.",
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "Solo los coordinadores de Huerteros o Recicladores pueden añadir "
+                "integrantes a su colectivo. El Administrador Comunitario solo tiene "
+                "permiso de visualización."
+            ),
         )
+    target_flow = coord_flow
 
     integrante = IntegranteColectivo(
         nombre=payload.nombre.strip(),

@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 export const dynamic = "force-dynamic";
 
 const TRANSIENT_STATUSES = new Set([502, 503, 504]);
+const IDEMPOTENT_AUTH_PATHS = new Set(["auth/demo-login", "auth/login"]);
 
 function resolveBackendBaseUrl(): string {
   const raw = (process.env.INTERNAL_API_URL || "http://backend:8000").trim();
@@ -21,11 +22,15 @@ function sleep(ms: number): Promise<void> {
 async function fetchUpstream(
   targetUrl: string,
   method: string,
+  joinedPath: string,
   headers: Headers,
   bodyBuffer?: ArrayBuffer
 ): Promise<Response> {
-  const isSafeRetry = method === "GET" || method === "HEAD";
-  const maxAttempts = isSafeRetry ? 3 : 1;
+  const isSafeRetry =
+    method === "GET" ||
+    method === "HEAD" ||
+    (method === "POST" && IDEMPOTENT_AUTH_PATHS.has(joinedPath));
+  const maxAttempts = isSafeRetry ? 4 : 1;
 
   let lastError: unknown = null;
   let lastResponse: Response | null = null;
@@ -36,9 +41,10 @@ async function fetchUpstream(
         method,
         headers,
         cache: "no-store",
+        signal: AbortSignal.timeout(25000),
       };
       if (bodyBuffer !== undefined) {
-        init.body = bodyBuffer;
+        init.body = bodyBuffer.slice(0);
       }
 
       const res = await fetch(targetUrl, init);
@@ -66,8 +72,9 @@ async function proxyRequest(
   context: { params: Promise<{ path: string[] }> }
 ): Promise<NextResponse> {
   const { path } = await context.params;
+  const joinedPath = path.join("/");
   const search = request.nextUrl.search || "";
-  const targetUrl = `${resolveBackendBaseUrl()}/api/v1/${path.join("/")}${search}`;
+  const targetUrl = `${resolveBackendBaseUrl()}/api/v1/${joinedPath}${search}`;
 
   const headers = new Headers();
   const authHeader = request.headers.get("authorization");
@@ -88,6 +95,7 @@ async function proxyRequest(
     const upstream = await fetchUpstream(
       targetUrl,
       request.method,
+      joinedPath,
       headers,
       bodyBuffer
     );
@@ -111,7 +119,7 @@ async function proxyRequest(
     return NextResponse.json(
       {
         detail:
-          "El servidor está iniciando o no responde todavía. Espera unos segundos y vuelve a intentarlo.",
+          "El servidor gratuito de Render está encendiendo (puede tardar entre 25 y 50 segundos). Espera un momento y vuelve a intentarlo.",
         error: err instanceof Error ? err.message : "unknown_error",
       },
       { status: 502 }
