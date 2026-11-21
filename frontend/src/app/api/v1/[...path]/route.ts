@@ -2,9 +2,15 @@ import { NextRequest, NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
 
-const INTERNAL_API_URL = (
-  process.env.INTERNAL_API_URL || "http://backend:8000"
-).replace(/\/$/, "");
+function resolveBackendBaseUrl(): string {
+  const raw = (process.env.INTERNAL_API_URL || "http://backend:8000").trim();
+  const normalized = /^https?:\/\//i.test(raw)
+    ? raw
+    : raw.includes(".onrender.com")
+      ? `https://${raw}`
+      : `http://${raw}`;
+  return normalized.replace(/\/$/, "");
+}
 
 async function proxyRequest(
   request: NextRequest,
@@ -12,7 +18,7 @@ async function proxyRequest(
 ): Promise<NextResponse> {
   const { path } = await context.params;
   const search = request.nextUrl.search || "";
-  const targetUrl = `${INTERNAL_API_URL}/api/v1/${path.join("/")}${search}`;
+  const targetUrl = `${resolveBackendBaseUrl()}/api/v1/${path.join("/")}${search}`;
 
   const headers = new Headers();
   const authHeader = request.headers.get("authorization");

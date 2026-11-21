@@ -92,6 +92,20 @@ docker compose -f docker-compose.ghcr.yml up -d
 
 ---
 
+## Despliegue en Render (Blueprint 1-Clic)
+
+El repositorio incluye [`render.yaml`](render.yaml) para desplegar automáticamente en **Render** (PostgreSQL 16 + Backend FastAPI Docker + Frontend Next.js Docker):
+
+1. Abre el Blueprint en Render:
+   `https://dashboard.render.com/blueprint/new?repo=https://github.com/agsanchezospino-droid/proyecto-ecoconecta`
+2. Haz clic en **Apply** para crear `ecoconecta-db`, `ecoconecta-backend` y `ecoconecta-frontend`.
+3. En **Render Dashboard → `ecoconecta-backend` → Environment**, agrega cuando estés listo tus credenciales reales:
+   - `WHATSAPP_PUBLIC_NUMBER`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_TOKEN`, `WHATSAPP_APP_SECRET`, `OPENAI_API_KEY`.
+4. Configura el webhook en Meta Developers apuntando a:
+   `https://<tu-backend-o-frontend>.onrender.com/api/webhooks/whatsapp`
+
+---
+
 ## Pruebas Automatizadas
 
 ```bash

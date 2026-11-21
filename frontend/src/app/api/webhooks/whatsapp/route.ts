@@ -2,13 +2,19 @@ import { NextRequest, NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
 
-const INTERNAL_API_URL = (
-  process.env.INTERNAL_API_URL || "http://backend:8000"
-).replace(/\/$/, "");
+function resolveBackendBaseUrl(): string {
+  const raw = (process.env.INTERNAL_API_URL || "http://backend:8000").trim();
+  const normalized = /^https?:\/\//i.test(raw)
+    ? raw
+    : raw.includes(".onrender.com")
+      ? `https://${raw}`
+      : `http://${raw}`;
+  return normalized.replace(/\/$/, "");
+}
 
 async function forwardWebhook(request: NextRequest): Promise<NextResponse> {
   const search = request.nextUrl.search || "";
-  const targetUrl = `${INTERNAL_API_URL}/api/webhooks/whatsapp${search}`;
+  const targetUrl = `${resolveBackendBaseUrl()}/api/webhooks/whatsapp${search}`;
 
   const headers = new Headers();
   const contentType = request.headers.get("content-type");
