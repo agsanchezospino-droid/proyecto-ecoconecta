@@ -9,10 +9,10 @@ import {
   Lock,
   Sparkles,
   Sprout,
-  TrendingUp,
 } from "lucide-react";
 import { useState } from "react";
 
+import ListenButton from "@/components/ListenButton";
 import { FlujoBadge } from "@/components/StatusBadge";
 import { apiFetch } from "@/lib/api";
 import { formatPts, type Beneficio, type MiResumenPuntos } from "@/lib/types";
@@ -20,6 +20,16 @@ import { formatPts, type Beneficio, type MiResumenPuntos } from "@/lib/types";
 interface Props {
   data: MiResumenPuntos;
   onRefresh: () => Promise<void>;
+}
+
+function formatDateLong(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return new Intl.DateTimeFormat("es-CO", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  }).format(date);
 }
 
 export default function PointsAndBenefitsView({ data, onRefresh }: Props) {
@@ -44,9 +54,9 @@ export default function PointsAndBenefitsView({ data, onRefresh }: Props) {
       setNotesById((prev) => ({ ...prev, [beneficio.id]: "" }));
       setFeedback({
         type: "ok",
-        text: `¡Canje registrado! "${beneficio.nombre}" (-${formatPts(
+        text: `¡Listo! Reclamaste "${beneficio.nombre}" (-${formatPts(
           beneficio.puntos_requeridos
-        )} pts). Tu saldo se actualizó automáticamente.`,
+        )} puntos). Tu saldo ya se actualizó.`,
       });
       await onRefresh();
     } catch (err) {
@@ -55,7 +65,7 @@ export default function PointsAndBenefitsView({ data, onRefresh }: Props) {
         text:
           err instanceof Error
             ? err.message
-            : "No se pudo registrar el canje del beneficio.",
+            : "No se pudo registrar el reclamo del beneficio.",
       });
     } finally {
       setRedeemingId(null);
@@ -63,147 +73,138 @@ export default function PointsAndBenefitsView({ data, onRefresh }: Props) {
   };
 
   const progreso = data.progreso_nivel;
+  const progresoTexto = progreso.siguiente_beneficio_id
+    ? `Te faltan ${formatPts(progreso.puntos_faltantes)} puntos para reclamar: ${progreso.siguiente_nivel_nombre}.`
+    : "¡Felicitaciones! Ya alcanzaste el nivel máximo de beneficios.";
 
   return (
-    <div className="space-y-6">
-      {/* Progreso por niveles */}
-      <div className="rounded-3xl border-2 border-huerta-200 bg-gradient-to-br from-huerta-50 via-white to-sol-50/70 p-6 shadow-sm">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+    <div className="space-y-8">
+      {/* Resumen de puntos y barra de progreso */}
+      <section className="rounded-3xl border-2 border-huerta-500 bg-white p-6 shadow-sm sm:p-8">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-huerta-600 px-3 py-1 text-xs font-bold text-white">
-              <Sprout className="h-3.5 w-3.5" />
+            <span className="inline-flex items-center gap-2 rounded-full bg-huerta-700 px-4 py-1.5 text-base font-extrabold text-white">
+              <Sprout className="h-5 w-5" />
               Nivel actual: {progreso.nivel_actual}
             </span>
-            <h2 className="mt-2.5 text-xl font-black text-stone-900 sm:text-2xl">
-              Saldo disponible: {formatPts(data.puntos_disponibles)} puntos
+            <h2 className="mt-4 text-3xl font-black text-gray-900 sm:text-4xl">
+              {formatPts(data.puntos_disponibles)} puntos disponibles
             </h2>
-            <p className="mt-1 text-xs text-stone-600">
-              Histórico ganado: <strong>{formatPts(data.puntos_ganados)} pts</strong>{" "}
-              · Canjeado: <strong>{formatPts(data.puntos_canjeados)} pts</strong>{" "}
-              · Equivalente acumulado:{" "}
-              <strong>{data.total_kg.toFixed(2)} kg</strong>
+            <p className="mt-2 text-lg text-gray-900">
+              1 kilo = 1 punto · 1 libra = medio punto (0.5)
             </p>
           </div>
 
-          <div className="rounded-2xl border border-sol-400/50 bg-sol-50 px-4 py-3 text-left sm:text-right">
-            <p className="text-[11px] font-bold uppercase tracking-wider text-sol-700">
-              Equivalencia referencial
-            </p>
-            <p className="mt-0.5 text-sm font-extrabold text-stone-900">
-              1 kg = 1.0 pt · 1 lb (500 g) = 0.5 pts
-            </p>
-          </div>
+          <ListenButton
+            text={`Tienes ${formatPts(
+              data.puntos_disponibles
+            )} puntos disponibles. Tu nivel actual es ${
+              progreso.nivel_actual
+            }. ${progresoTexto}`}
+            label="Escuchar"
+          />
         </div>
 
-        {/* Progress Bar */}
-        <div className="mt-5">
-          <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-bold text-stone-700">
-            <span className="inline-flex items-center gap-1.5">
-              <TrendingUp className="h-4 w-4 text-huerta-600" />
-              {progreso.siguiente_beneficio_id
-                ? `Siguiente nivel: ${progreso.siguiente_nivel_nombre}`
-                : "¡Alcanzaste el nivel máximo disponible!"}
-            </span>
-            <span className="text-huerta-700">
-              {progreso.porcentaje_avance.toFixed(0)}%
-              {progreso.siguiente_beneficio_id &&
-                ` · Te faltan ${formatPts(progreso.puntos_faltantes)} pts`}
-            </span>
-          </div>
-          <div className="mt-2 h-4 w-full overflow-hidden rounded-full bg-stone-200/90">
+        <div className="mt-6">
+          <div
+            className="h-5 w-full overflow-hidden rounded-full border border-stone-300 bg-stone-100"
+            role="progressbar"
+            aria-valuenow={Math.round(progreso.porcentaje_avance)}
+            aria-valuemin={0}
+            aria-valuemax={100}
+          >
             <div
-              className="h-full rounded-full bg-gradient-to-r from-huerta-500 via-huerta-600 to-sol-500 transition-all duration-500"
-              style={{ width: `${Math.min(Math.max(progreso.porcentaje_avance, 4), 100)}%` }}
+              className="h-full rounded-full bg-huerta-600 transition-all duration-500"
+              style={{
+                width: `${Math.min(
+                  Math.max(progreso.porcentaje_avance, 5),
+                  100
+                )}%`,
+              }}
             />
           </div>
-          <div className="mt-2 flex flex-wrap justify-between gap-2 text-[11px] font-semibold text-stone-500">
-            {data.beneficios.map((b) => (
-              <span
-                key={b.id}
-                className={
-                  b.desbloqueado ? "font-bold text-huerta-700" : "text-stone-500"
-                }
-              >
-                {b.nombre.split("–")[0].trim()} ({formatPts(b.puntos_requeridos)}{" "}
-                pts)
-              </span>
-            ))}
-          </div>
+          <p className="mt-3 text-lg font-bold leading-relaxed text-gray-900">
+            {progresoTexto}
+          </p>
         </div>
-      </div>
 
-      {/* Mandatory RN-06 Institutional Note */}
-      <div className="rounded-2xl border border-sol-400/50 bg-sol-50 px-4 py-3 text-xs font-semibold text-stone-800">
-        <strong>Nota institucional (RN-06):</strong>{" "}
-        {data.nota_institucional ||
-          "Valores de puntaje y beneficios referenciales y parametrizables; sujetos a validación oficial de la Fundación Santo Domingo."}
-      </div>
+        {/* Nota obligatoria RN-06 */}
+        <p className="mt-5 rounded-2xl border-2 border-sol-400 bg-sol-50 px-5 py-4 text-base font-semibold leading-relaxed text-gray-900">
+          <strong>Nota institucional (RN-06):</strong>{" "}
+          {data.nota_institucional ||
+            "Valores de puntaje y beneficios referenciales y parametrizables; sujetos a validación oficial de la Fundación Santo Domingo."}
+        </p>
+      </section>
 
       {feedback && (
         <div
-          className={`rounded-2xl border px-4 py-3 text-sm font-semibold ${
+          className={`rounded-2xl border-2 px-5 py-4 text-lg font-bold ${
             feedback.type === "ok"
-              ? "border-huerta-200 bg-huerta-50 text-huerta-800"
-              : "border-rose-200 bg-rose-50 text-rose-700"
+              ? "border-huerta-500 bg-huerta-50 text-huerta-900"
+              : "border-rose-500 bg-rose-50 text-rose-900"
           }`}
         >
           {feedback.text}
         </div>
       )}
 
-      {/* Catálogo de Beneficios (Usuarios) */}
-      <div>
-        <div className="flex items-center gap-2">
-          <Gift className="h-5 w-5 text-huerta-600" />
-          <h3 className="text-lg font-extrabold text-stone-900">
-            Catálogo de Beneficios por Nivel (Usuarios)
-          </h3>
+      {/* Catálogo de Beneficios (máximo 2 columnas en escritorio, 1 en celular) */}
+      <section className="space-y-4">
+        <div className="flex items-center gap-3">
+          <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-sol-400 text-gray-900">
+            <Gift className="h-7 w-7" />
+          </span>
+          <div>
+            <h3 className="text-2xl font-black text-gray-900 sm:text-3xl">
+              Premios y Beneficios
+            </h3>
+            <p className="text-lg text-gray-900">
+              Cuando alcances los puntos, toca el botón verde para reclamarlo.
+            </p>
+          </div>
         </div>
-        <p className="mt-1 text-xs text-stone-600">
-          Cuando alcances el puntaje requerido, registra el canje desde aquí y
-          coordina la entrega con el equipo comunitario de Villas de San Pablo.
-        </p>
 
-        <div className="mt-4 grid gap-4 md:grid-cols-3">
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
           {data.beneficios.map((b) => {
             const busy = redeemingId === b.id;
             return (
               <article
                 key={b.id}
-                className={`flex flex-col justify-between rounded-2xl border-2 p-5 transition ${
+                className={`flex flex-col justify-between rounded-3xl border-2 p-6 shadow-sm ${
                   b.desbloqueado
-                    ? "border-huerta-500 bg-white shadow-sm"
-                    : "border-stone-200 bg-stone-50/70"
+                    ? "border-huerta-600 bg-white"
+                    : "border-stone-300 bg-stone-50"
                 }`}
               >
                 <div>
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="inline-flex items-center gap-1 rounded-full bg-sol-100 px-3 py-1 text-xs font-black text-sol-700">
-                      <Award className="h-3.5 w-3.5" />
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="inline-flex items-center gap-1.5 rounded-full border-2 border-sol-500 bg-sol-100 px-4 py-1 text-base font-black text-gray-900">
+                      <Award className="h-5 w-5 text-sol-700" />
                       {formatPts(b.puntos_requeridos)} pts
                     </span>
+
                     {b.desbloqueado ? (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-huerta-100 px-2.5 py-0.5 text-[11px] font-bold text-huerta-700">
-                        <Sparkles className="h-3 w-3" />
-                        Disponible
+                      <span className="inline-flex items-center gap-1.5 rounded-full bg-huerta-700 px-3.5 py-1 text-sm font-extrabold text-white">
+                        <Sparkles className="h-4 w-4" />
+                        ¡Disponible!
                       </span>
                     ) : (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-stone-200 px-2.5 py-0.5 text-[11px] font-bold text-stone-600">
-                        <Lock className="h-3 w-3" />
+                      <span className="inline-flex items-center gap-1.5 rounded-full border border-stone-400 bg-white px-3.5 py-1 text-sm font-extrabold text-gray-900">
+                        <Lock className="h-4 w-4" />
                         Faltan {formatPts(b.puntos_faltantes)} pts
                       </span>
                     )}
                   </div>
 
-                  <h4 className="mt-3 text-base font-extrabold text-stone-900">
+                  <h4 className="mt-4 text-xl font-black text-gray-900">
                     {b.nombre}
                   </h4>
-                  <p className="mt-1.5 text-xs leading-relaxed text-stone-600">
+                  <p className="mt-2 text-lg leading-relaxed text-gray-900">
                     {b.descripcion}
                   </p>
                 </div>
 
-                <div className="mt-4 space-y-2 border-t border-stone-100 pt-3">
+                <div className="mt-6 space-y-3 border-t-2 border-stone-200 pt-5">
                   {b.desbloqueado && (
                     <input
                       type="text"
@@ -215,7 +216,7 @@ export default function PointsAndBenefitsView({ data, onRefresh }: Props) {
                         }))
                       }
                       placeholder="Nota opcional (ej: reclamar el sábado)"
-                      className="eco-input py-2 text-xs"
+                      className="eco-input"
                     />
                   )}
                   <button
@@ -224,19 +225,25 @@ export default function PointsAndBenefitsView({ data, onRefresh }: Props) {
                     onClick={() => handleRedeem(b)}
                     className={
                       b.desbloqueado
-                        ? "eco-btn-primary w-full py-2.5 text-xs"
-                        : "inline-flex min-h-[42px] w-full cursor-not-allowed items-center justify-center gap-1.5 rounded-xl border border-stone-200 bg-stone-100 px-4 text-xs font-bold text-stone-500"
+                        ? "eco-btn-primary w-full"
+                        : "inline-flex min-h-[56px] w-full cursor-not-allowed items-center justify-center gap-2 rounded-2xl border-2 border-stone-300 bg-stone-200 px-5 py-3 text-lg font-extrabold text-gray-800"
                     }
                   >
                     {busy ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
+                      <>
+                        <Loader2 className="h-6 w-6 animate-spin" />
+                        <span>Registrando...</span>
+                      </>
                     ) : b.desbloqueado ? (
                       <>
-                        <CheckCircle2 className="h-4 w-4" />
-                        Registrar canje ({formatPts(b.puntos_requeridos)} pts)
+                        <CheckCircle2 className="h-6 w-6 shrink-0" />
+                        <span>Reclamar ({formatPts(b.puntos_requeridos)} pts)</span>
                       </>
                     ) : (
-                      `Te faltan ${formatPts(b.puntos_faltantes)} pts`
+                      <>
+                        <Lock className="h-5 w-5 shrink-0" />
+                        <span>Te faltan {formatPts(b.puntos_faltantes)} pts</span>
+                      </>
                     )}
                   </button>
                 </div>
@@ -244,125 +251,99 @@ export default function PointsAndBenefitsView({ data, onRefresh }: Props) {
             );
           })}
         </div>
-      </div>
+      </section>
 
-      {/* Canjes Registrados */}
+      {/* Beneficios ya reclamados */}
       {data.canjes.length > 0 && (
-        <div className="eco-card overflow-hidden">
-          <div className="border-b border-stone-200 px-5 py-3.5">
-            <h3 className="flex items-center gap-2 text-sm font-extrabold text-stone-900">
-              <Gift className="h-4 w-4 text-sol-600" />
-              Mis Canjes Registrados ({data.canjes.length})
-            </h3>
-          </div>
-          <div className="divide-y divide-stone-100">
+        <section className="rounded-3xl border-2 border-stone-300 bg-white p-6 shadow-sm sm:p-8">
+          <h3 className="flex items-center gap-2.5 text-2xl font-black text-gray-900">
+            <Gift className="h-7 w-7 text-sol-700" />
+            <span>Beneficios que ya reclamaste ({data.canjes.length})</span>
+          </h3>
+          <div className="mt-5 space-y-4">
             {data.canjes.map((c) => (
               <div
                 key={c.id}
-                className="flex flex-wrap items-center justify-between gap-2 px-5 py-3 text-sm"
+                className="flex flex-col gap-3 rounded-2xl border-2 border-stone-200 bg-stone-50 p-5 sm:flex-row sm:items-center sm:justify-between"
               >
                 <div>
-                  <p className="font-bold text-stone-900">
+                  <p className="text-xl font-black text-gray-900">
                     {c.beneficio_nombre}
                   </p>
-                  <p className="text-xs text-stone-500">
-                    {new Date(c.creado_en).toLocaleString("es-CO")}
+                  <p className="mt-1 text-base font-semibold text-gray-800">
+                    {formatDateLong(c.creado_en)}
                     {c.observaciones ? ` · ${c.observaciones}` : ""}
                   </p>
                 </div>
-                <div className="text-right">
-                  <span className="rounded-full bg-huerta-100 px-2.5 py-0.5 text-xs font-bold uppercase text-huerta-700">
+                <div className="flex items-center gap-3 sm:flex-col sm:items-end">
+                  <span className="rounded-full border border-huerta-500 bg-huerta-100 px-3.5 py-1 text-sm font-extrabold uppercase text-huerta-900">
                     {c.estado}
                   </span>
-                  <p className="mt-0.5 text-xs font-extrabold text-rose-700">
+                  <p className="text-lg font-black text-rose-800">
                     -{formatPts(c.puntos_canjeados)} pts
                   </p>
                 </div>
               </div>
             ))}
           </div>
-        </div>
+        </section>
       )}
 
-      {/* Movimientos de Puntos */}
-      <div className="eco-card overflow-hidden">
-        <div className="border-b border-stone-200 px-5 py-3.5">
-          <h3 className="flex items-center gap-2 text-sm font-extrabold text-stone-900">
-            <History className="h-4 w-4 text-huerta-600" />
-            Historial de Movimientos de Puntos ({data.movimientos.length})
-          </h3>
-        </div>
+      {/* Historial de Movimientos en tarjetas simples (sin tablas apretadas) */}
+      <section className="rounded-3xl border-2 border-stone-300 bg-white p-6 shadow-sm sm:p-8">
+        <h3 className="flex items-center gap-2.5 text-2xl font-black text-gray-900">
+          <History className="h-7 w-7 text-huerta-700" />
+          <span>Historial de Puntos ({data.movimientos.length})</span>
+        </h3>
+
         {data.movimientos.length === 0 ? (
-          <p className="p-6 text-center text-sm text-stone-500">
-            Aún no tienes movimientos registrados. Al cerrarse tu primera
-            recolección verás aquí el peso y tus puntos.
+          <p className="mt-4 text-lg leading-relaxed text-gray-900">
+            Todavía no tienes movimientos. Cuando recogemos tu primer pedido,
+            aquí verás el peso y tus puntos sumados.
           </p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-stone-50 text-xs uppercase text-stone-500">
-                <tr>
-                  <th className="px-4 py-3">Fecha</th>
-                  <th className="px-4 py-3">Referencia</th>
-                  <th className="px-4 py-3">Flujo</th>
-                  <th className="px-4 py-3">Peso</th>
-                  <th className="px-4 py-3">Detalle</th>
-                  <th className="px-4 py-3 text-right">Puntos</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-stone-100">
-                {data.movimientos.map((m) => (
-                  <tr key={m.id}>
-                    <td className="px-4 py-3 text-xs text-stone-500">
-                      {new Date(m.creado_en).toLocaleDateString("es-CO")}
-                    </td>
-                    <td className="px-4 py-3 font-mono text-xs font-bold text-stone-800">
+          <div className="mt-5 space-y-4">
+            {data.movimientos.map((m) => (
+              <article
+                key={m.id}
+                className="flex flex-col gap-3 rounded-2xl border-2 border-stone-200 bg-stone-50 p-5 sm:flex-row sm:items-center sm:justify-between"
+              >
+                <div className="space-y-1.5">
+                  <div className="flex flex-wrap items-center gap-2">
+                    {m.flujo ? (
+                      <FlujoBadge flujo={m.flujo} />
+                    ) : (
+                      <span className="rounded-full border-2 border-sol-500 bg-sol-100 px-3.5 py-1 text-sm font-extrabold text-gray-900">
+                        Beneficio reclamado
+                      </span>
+                    )}
+                    <span className="font-mono text-base font-black text-gray-900">
                       {m.codigo_solicitud || m.beneficio_nombre || "Canje"}
-                    </td>
-                    <td className="px-4 py-3">
-                      {m.flujo ? (
-                        <FlujoBadge flujo={m.flujo} />
-                      ) : (
-                        <span className="rounded-full bg-sol-100 px-2.5 py-0.5 text-xs font-bold text-sol-700">
-                          Canje beneficio
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-xs font-semibold text-stone-700">
-                      {m.peso_ingresado !== null &&
-                      m.peso_ingresado !== undefined ? (
-                        <>
-                          {m.peso_ingresado.toFixed(2)} {m.unidad_medida}
-                          {m.unidad_medida === "lb" && m.peso_kg != null && (
-                            <span className="block text-[11px] text-stone-500">
-                              ({m.peso_kg.toFixed(2)} kg)
-                            </span>
-                          )}
-                        </>
-                      ) : (
-                        "—"
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-xs text-stone-600">
-                      {m.regla_aplicada}
-                    </td>
-                    <td
-                      className={`px-4 py-3 text-right font-black ${
-                        m.puntos >= 0 ? "text-huerta-700" : "text-rose-700"
-                      }`}
-                    >
-                      {m.puntos >= 0
-                        ? `+${formatPts(m.puntos)}`
-                        : formatPts(m.puntos)}{" "}
-                      pts
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                    </span>
+                  </div>
+                  <p className="text-base font-bold text-gray-800">
+                    {formatDateLong(m.creado_en)}
+                    {m.peso_ingresado != null && m.unidad_medida
+                      ? ` · Peso: ${m.peso_ingresado.toFixed(1)} ${m.unidad_medida}`
+                      : ""}
+                  </p>
+                </div>
+
+                <p
+                  className={`text-2xl font-black ${
+                    m.puntos >= 0 ? "text-huerta-800" : "text-rose-800"
+                  }`}
+                >
+                  {m.puntos >= 0
+                    ? `+${formatPts(m.puntos)}`
+                    : formatPts(m.puntos)}{" "}
+                  pts
+                </p>
+              </article>
+            ))}
           </div>
         )}
-      </div>
+      </section>
     </div>
   );
 }

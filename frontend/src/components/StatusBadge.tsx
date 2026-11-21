@@ -6,38 +6,38 @@ const ESTADO_CONFIG: Record<
 > = {
   recibida: {
     label: "Recibida",
-    className: "bg-sol-100 text-sol-700 border-sol-400/50",
+    className: "bg-sol-100 text-gray-900 border-sol-500",
   },
   en_revision: {
     label: "En revisión",
-    className: "bg-sky-100 text-sky-800 border-sky-300",
+    className: "bg-sky-100 text-sky-950 border-sky-400",
   },
   asignada: {
     label: "Asignada",
-    className: "bg-indigo-100 text-indigo-800 border-indigo-300",
+    className: "bg-indigo-100 text-indigo-950 border-indigo-400",
   },
   programada: {
     label: "Programada",
-    className: "bg-reciclaje-100 text-reciclaje-700 border-reciclaje-200",
+    className: "bg-reciclaje-100 text-reciclaje-900 border-reciclaje-400",
   },
   recolectada: {
-    label: "Recolectada",
-    className: "bg-huerta-100 text-huerta-700 border-huerta-200",
+    label: "Ya recogido",
+    className: "bg-huerta-100 text-huerta-900 border-huerta-400",
   },
   cancelada: {
     label: "Cancelada",
-    className: "bg-rose-100 text-rose-700 border-rose-200",
+    className: "bg-rose-100 text-rose-900 border-rose-400",
   },
 };
 
 export function EstadoBadge({ estado }: { estado: EstadoSolicitud }) {
   const cfg = ESTADO_CONFIG[estado] ?? {
     label: estado,
-    className: "bg-stone-100 text-stone-700 border-stone-200",
+    className: "bg-stone-100 text-gray-900 border-stone-400",
   };
   return (
     <span
-      className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-bold ${cfg.className}`}
+      className={`inline-flex items-center rounded-full border-2 px-3.5 py-1 text-sm font-extrabold ${cfg.className}`}
     >
       {cfg.label}
     </span>
@@ -51,21 +51,21 @@ export function FlujoBadge({
 }) {
   if (flujo === "organico") {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-huerta-100 px-2.5 py-0.5 text-xs font-bold text-huerta-700">
+      <span className="inline-flex items-center gap-1.5 rounded-full border-2 border-huerta-400 bg-huerta-100 px-3.5 py-1 text-sm font-extrabold text-huerta-900">
         Orgánico · Huerta
       </span>
     );
   }
   if (flujo === "reciclable") {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-reciclaje-100 px-2.5 py-0.5 text-xs font-bold text-reciclaje-700">
+      <span className="inline-flex items-center gap-1.5 rounded-full border-2 border-reciclaje-400 bg-reciclaje-100 px-3.5 py-1 text-sm font-extrabold text-reciclaje-900">
         Reciclable · Recicladores
       </span>
     );
   }
   return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-stone-200 px-2.5 py-0.5 text-xs font-bold text-stone-700">
-      No aprovechable · Aseo ordinario
+    <span className="inline-flex items-center gap-1.5 rounded-full border-2 border-stone-400 bg-stone-200 px-3.5 py-1 text-sm font-extrabold text-gray-900">
+      No aprovechable · Aseo
     </span>
   );
 }

@@ -7,14 +7,14 @@ interface ListenButtonProps {
   text: string;
   label?: string;
   className?: string;
-  variant?: "light" | "dark" | "compact";
+  variant?: "accent" | "light" | "dark";
 }
 
 export default function ListenButton({
   text,
   label = "Escuchar",
   className = "",
-  variant = "light",
+  variant = "accent",
 }: ListenButtonProps) {
   const [speaking, setSpeaking] = useState(false);
   const [supported, setSupported] = useState(true);
@@ -47,7 +47,7 @@ export default function ListenButton({
     synth.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = "es-CO";
-    utterance.rate = 0.96;
+    utterance.rate = 0.92;
 
     const voices = synth.getVoices();
     const spanishVoice =
@@ -69,23 +69,18 @@ export default function ListenButton({
     return null;
   }
 
-  const baseStyle =
+  const styleByVariant =
     variant === "dark"
       ? speaking
-        ? "border-sol-400 bg-sol-400 text-stone-950"
-        : "border-stone-600 bg-stone-800 text-white hover:bg-stone-700"
-      : variant === "compact"
+        ? "border-rose-500 bg-rose-600 text-white"
+        : "border-sol-400 bg-sol-400 text-gray-900 hover:bg-sol-500"
+      : variant === "light"
         ? speaking
-          ? "border-sol-500 bg-sol-400 text-stone-950"
-          : "border-stone-300 bg-white text-stone-800 hover:border-huerta-500 hover:bg-huerta-50"
+          ? "border-rose-600 bg-rose-700 text-white"
+          : "border-huerta-700 bg-white text-huerta-800 hover:bg-huerta-50"
         : speaking
-          ? "border-sol-500 bg-sol-400 text-stone-950 shadow-sm"
-          : "border-huerta-300 bg-white text-huerta-800 shadow-sm hover:bg-huerta-50";
-
-  const sizeStyle =
-    variant === "compact"
-      ? "min-h-[38px] px-3 py-1.5 text-xs"
-      : "min-h-[44px] px-4 py-2 text-sm";
+          ? "border-rose-700 bg-rose-700 text-white"
+          : "border-sol-600 bg-sol-400 text-gray-900 hover:bg-sol-500";
 
   return (
     <button
@@ -93,17 +88,16 @@ export default function ListenButton({
       onClick={handleToggle}
       aria-pressed={speaking}
       aria-label={speaking ? "Detener lectura en voz alta" : `${label} en voz alta`}
-      className={`inline-flex shrink-0 items-center justify-center gap-2 rounded-xl border-2 font-bold transition active:scale-[0.98] ${baseStyle} ${sizeStyle} ${className}`}
+      className={`inline-flex min-h-[56px] shrink-0 items-center justify-center gap-2.5 rounded-2xl border-2 px-5 py-3 text-lg font-extrabold shadow-sm transition active:scale-[0.98] ${styleByVariant} ${className}`}
     >
       {speaking ? (
         <>
-          <Square className="h-4 w-4 fill-current" />
+          <Square className="h-5 w-5 fill-current" />
           <span>Detener audio</span>
         </>
       ) : (
         <>
-          <Volume2 className="h-4 w-4" />
-          <span aria-hidden="true">🔊</span>
+          <Volume2 className="h-6 w-6 shrink-0" />
           <span>{label}</span>
         </>
       )}

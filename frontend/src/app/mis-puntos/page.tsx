@@ -1,10 +1,10 @@
 "use client";
 
-import { AlertCircle, ArrowLeft, Award, Loader2 } from "lucide-react";
-import Link from "next/link";
+import { AlertCircle, Award, Loader2, RefreshCw } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
+import BackToHomeButton from "@/components/BackToHomeButton";
 import PointsAndBenefitsView from "@/components/PointsAndBenefitsView";
 import WhatsAppCtaButton from "@/components/WhatsAppCtaButton";
 import { useAuth } from "@/context/AuthContext";
@@ -54,61 +54,66 @@ export default function MisPuntosPage() {
 
   if (loading || !user) {
     return (
-      <div className="flex min-h-[50vh] items-center justify-center">
-        <Loader2 className="h-7 w-7 animate-spin text-huerta-600" />
+      <div className="flex min-h-[50vh] flex-col items-center justify-center gap-4 px-4">
+        <Loader2 className="h-10 w-10 animate-spin text-huerta-600" />
+        <p className="text-lg font-bold text-gray-900">
+          Cargando tus beneficios...
+        </p>
       </div>
     );
   }
 
   return (
-    <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+    <div className="mx-auto max-w-4xl px-4 py-8 sm:px-6 sm:py-10">
+      <div className="flex flex-wrap items-center gap-4">
+        <BackToHomeButton href="/cuenta" label="Volver a Mi Cuenta" className="mb-0" />
+      </div>
+
+      <header className="mt-6 flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <Link
-            href="/mi-cuenta"
-            className="inline-flex items-center gap-1 text-xs font-bold text-huerta-700 hover:underline"
-          >
-            <ArrowLeft className="h-3.5 w-3.5" />
-            Volver a Mi Cuenta
-          </Link>
-          <h1 className="mt-2 flex items-center gap-2 text-2xl font-black text-stone-900 sm:text-3xl">
-            <Award className="h-7 w-7 text-sol-500" />
-            Mis Puntos y Beneficios
+          <h1 className="flex items-center gap-3 text-3xl font-black text-gray-900 sm:text-4xl">
+            <Award className="h-9 w-9 shrink-0 text-sol-600" />
+            <span>Mis Puntos y Beneficios</span>
           </h1>
-          <p className="mt-1 text-sm text-stone-600">
-            Revisa tu progreso por niveles, canjea beneficios y consulta cada
-            movimiento acreditado en <strong>{user.nombre}</strong>.
+          <p className="mt-2 text-lg leading-relaxed text-gray-900">
+            Consulta tu avance y reclama tus premios en{" "}
+            <strong>{user.nombre}</strong>.
           </p>
         </div>
 
         {!isCoordinatorOrAdmin && (
           <WhatsAppCtaButton
-            label="Pedir Recolección por WhatsApp"
+            label="Pedir Recolección"
             size="md"
+            className="w-full sm:w-auto"
           />
         )}
-      </div>
+      </header>
 
       {loadError && (
-        <div className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
-          <span className="flex items-center gap-2 font-semibold">
-            <AlertCircle className="h-4 w-4 shrink-0" />
-            {loadError}
+        <div className="mt-6 flex flex-col gap-4 rounded-3xl border-2 border-rose-400 bg-rose-50 p-6 sm:flex-row sm:items-center sm:justify-between">
+          <span className="flex items-start gap-3 text-lg font-bold text-rose-900">
+            <AlertCircle className="mt-1 h-6 w-6 shrink-0" />
+            <span>{loadError}</span>
           </span>
           <button
             type="button"
             onClick={() => void loadData({ syncProfile: true })}
-            className="rounded-xl bg-rose-700 px-3 py-1.5 text-xs font-bold text-white hover:bg-rose-800"
+            className="eco-btn-danger shrink-0"
           >
-            Reintentar
+            <RefreshCw className="h-5 w-5 shrink-0" />
+            <span>Reintentar</span>
           </button>
         </div>
       )}
 
-      <div className="mt-6">
+      <div className="mt-8">
         {fetching || !data ? (
-          <div className="flex justify-center py-14">
-            <Loader2 className="h-7 w-7 animate-spin text-huerta-600" />
+          <div className="flex flex-col items-center justify-center gap-4 py-16">
+            <Loader2 className="h-10 w-10 animate-spin text-huerta-600" />
+            <p className="text-lg font-bold text-gray-900">
+              Cargando puntos...
+            </p>
           </div>
         ) : (
           <PointsAndBenefitsView

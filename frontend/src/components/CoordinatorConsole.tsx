@@ -16,6 +16,7 @@ import {
   Inbox,
   Leaf,
   Loader2,
+  LogOut,
   MapPin,
   MessageCircle,
   MessageSquareText,
@@ -35,6 +36,7 @@ import {
   Users,
   XCircle,
 } from "lucide-react";
+import { useRouter } from "next/navigation";
 import {
   ComponentType,
   FormEvent,
@@ -107,7 +109,13 @@ function localDateTimeInputDefault(): string {
 }
 
 export default function CoordinatorConsole() {
-  const { user, isAdmin, coordinatorFlow } = useAuth();
+  const { user, isAdmin, coordinatorFlow, logout } = useAuth();
+  const router = useRouter();
+
+  const handleLogout = () => {
+    logout();
+    router.replace("/");
+  };
 
   const [activeTab, setActiveTab] = useState<TabId>("bandeja");
   const [adminFlowFilter, setAdminFlowFilter] = useState<
@@ -908,57 +916,65 @@ export default function CoordinatorConsole() {
               type="button"
               onClick={() => void loadAll()}
               disabled={loading}
-              className="inline-flex min-h-[42px] items-center gap-1.5 rounded-xl bg-white/20 px-4 text-sm font-bold text-white transition hover:bg-white/30"
+              className="inline-flex min-h-[48px] items-center gap-2 rounded-xl bg-white/20 px-4 text-base font-bold text-white transition hover:bg-white/30"
             >
               <RefreshCw
-                className={`h-4 w-4 ${loading ? "animate-spin" : ""}`}
+                className={`h-5 w-5 ${loading ? "animate-spin" : ""}`}
               />
-              Actualizar
+              <span>Actualizar</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="inline-flex min-h-[48px] items-center gap-2 rounded-xl border-2 border-white/60 bg-rose-700 px-4 text-base font-extrabold text-white transition hover:bg-rose-800"
+            >
+              <LogOut className="h-5 w-5" />
+              <span>Cerrar sesión</span>
             </button>
           </div>
         </div>
 
         {/* Mini KPI Strip */}
         {resumen && (
-          <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <div className="rounded-2xl bg-black/20 p-3.5">
-              <p className="text-xs font-semibold text-white/75">
+          <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="rounded-2xl bg-black/25 p-4">
+              <p className="text-sm font-bold text-white/90">
                 Pedidos en bandeja
               </p>
-              <p className="mt-0.5 text-2xl font-black">
+              <p className="mt-1 text-3xl font-black">
                 {resumen.total_solicitudes}
               </p>
             </div>
-            <div className="rounded-2xl bg-black/20 p-3.5">
-              <p className="text-xs font-semibold text-white/75">
+            <div className="rounded-2xl bg-black/25 p-4">
+              <p className="text-sm font-bold text-white/90">
                 Pendientes / Programadas
               </p>
-              <p className="mt-0.5 text-2xl font-black">
+              <p className="mt-1 text-3xl font-black">
                 {(resumen.por_estado.recibida || 0) +
                   (resumen.por_estado.en_revision || 0) +
                   (resumen.por_estado.asignada || 0) +
                   (resumen.por_estado.programada || 0)}
               </p>
             </div>
-            <div className="rounded-2xl bg-black/20 p-3.5">
-              <p className="text-xs font-semibold text-white/75">
+            <div className="rounded-2xl bg-black/25 p-4">
+              <p className="text-sm font-bold text-white/90">
                 Kg recolectados (equiv.)
               </p>
-              <p className="mt-0.5 text-2xl font-black">
+              <p className="mt-1 text-3xl font-black">
                 {resumen.total_kg_recolectados} kg
               </p>
             </div>
-            <div className="rounded-2xl bg-black/20 p-3.5">
-              <p className="text-xs font-semibold text-white/75">
+            <div className="rounded-2xl bg-black/25 p-4">
+              <p className="text-sm font-bold text-white/90">
                 Meta Cloud API
               </p>
-              <p className="mt-0.5 text-sm font-extrabold uppercase text-sol-400">
+              <p className="mt-1 text-base font-extrabold uppercase text-sol-300">
                 {resumen.modo_whatsapp_activo === "conectado"
                   ? "Conectado"
                   : "Configurar .env"}
               </p>
               {lastSyncedAt && (
-                <p className="text-[10px] text-white/65">
+                <p className="mt-0.5 text-xs font-semibold text-white/85">
                   Últ. sync: {lastSyncedAt}
                 </p>
               )}
@@ -970,17 +986,17 @@ export default function CoordinatorConsole() {
       {/* Feedback Banner */}
       {banner && (
         <div
-          className={`mt-4 flex items-center justify-between gap-3 rounded-2xl border px-4 py-3 text-sm font-semibold ${
+          className={`mt-5 flex items-center justify-between gap-3 rounded-2xl border-2 px-5 py-4 text-base font-bold ${
             banner.type === "ok"
-              ? "border-huerta-200 bg-huerta-50 text-huerta-800"
-              : "border-rose-200 bg-rose-50 text-rose-700"
+              ? "border-huerta-500 bg-huerta-50 text-huerta-900"
+              : "border-rose-500 bg-rose-50 text-rose-900"
           }`}
         >
           <span>{banner.text}</span>
           <button
             type="button"
             onClick={() => setBanner(null)}
-            className="text-xs underline"
+            className="min-h-[40px] rounded-xl border border-current px-3 text-sm font-extrabold"
           >
             Cerrar
           </button>
@@ -988,7 +1004,7 @@ export default function CoordinatorConsole() {
       )}
 
       {/* Navigation Tabs */}
-      <div className="mt-6 flex flex-wrap gap-2 border-b border-stone-200 pb-3">
+      <div className="mt-6 flex flex-wrap gap-3 border-b-2 border-stone-200 pb-4">
         {tabs.map((t) => {
           const Icon = t.Icon;
           const active = activeTab === t.id;
@@ -997,14 +1013,14 @@ export default function CoordinatorConsole() {
               key={t.id}
               type="button"
               onClick={() => setActiveTab(t.id)}
-              className={`inline-flex min-h-[44px] items-center gap-2 rounded-xl px-4 text-sm font-bold transition ${
+              className={`inline-flex min-h-[52px] items-center gap-2 rounded-2xl px-5 text-base font-extrabold transition ${
                 active
-                  ? "bg-stone-900 text-white shadow-sm"
-                  : "border border-stone-200 bg-white text-stone-700 hover:bg-stone-100"
+                  ? "bg-gray-900 text-white shadow-sm"
+                  : "border-2 border-stone-300 bg-white text-gray-900 hover:bg-stone-100"
               }`}
             >
-              <Icon className="h-4 w-4" />
-              {t.label}
+              <Icon className="h-5 w-5 shrink-0" />
+              <span>{t.label}</span>
             </button>
           );
         })}
@@ -1012,32 +1028,32 @@ export default function CoordinatorConsole() {
 
       {/* TAB 1: BANDEJA DE PEDIDOS RECIBIDOS DESDE WHATSAPP */}
       {activeTab === "bandeja" && (
-        <div className="mt-6 space-y-4">
-          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div className="flex flex-wrap gap-1.5">
+        <div className="mt-6 space-y-5">
+          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div className="flex flex-wrap gap-2">
               {STATUS_FILTERS.map((sf) => (
                 <button
                   key={sf.id}
                   type="button"
                   onClick={() => setEstadoFilter(sf.id)}
-                  className={`rounded-full px-3.5 py-1.5 text-xs font-bold transition ${
+                  className={`min-h-[44px] rounded-full px-4 py-2 text-sm font-extrabold transition ${
                     estadoFilter === sf.id
-                      ? "bg-stone-900 text-white"
-                      : "border border-stone-200 bg-white text-stone-700 hover:bg-stone-100"
+                      ? "bg-gray-900 text-white"
+                      : "border-2 border-stone-300 bg-white text-gray-900 hover:bg-stone-100"
                   }`}
                 >
                   {sf.label}
                 </button>
               ))}
             </div>
-            <div className="relative md:w-80">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-stone-400" />
+            <div className="relative md:w-96">
+              <Search className="pointer-events-none absolute left-3.5 top-1/2 h-5 w-5 -translate-y-1/2 text-gray-700" />
               <input
                 type="text"
                 value={searchText}
                 onChange={(e) => setSearchText(e.target.value)}
-                placeholder="Buscar código, nombre, teléfono, dirección o mensaje..."
-                className="eco-input py-2 pl-9 text-sm"
+                placeholder="Buscar código, nombre, teléfono o dirección..."
+                className="eco-input pl-11 text-base"
               />
             </div>
           </div>

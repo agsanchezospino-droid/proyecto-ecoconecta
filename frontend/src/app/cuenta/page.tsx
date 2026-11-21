@@ -1,5 +1,5 @@
-import { redirect } from "next/navigation";
+import MiCuentaView from "@/components/MiCuentaView";
 
-export default function CuentaRedirectPage() {
-  redirect("/mi-cuenta");
+export default function CuentaPage() {
+  return <MiCuentaView />;
 }
