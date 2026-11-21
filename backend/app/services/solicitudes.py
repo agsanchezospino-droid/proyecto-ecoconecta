@@ -376,6 +376,7 @@ def create_solicitud_from_whatsapp(
     clasificacion: ClasificacionSolicitudIA,
     whatsapp_media_id: Optional[str] = None,
     transcription_model: Optional[str] = None,
+    audio_error_detail: Optional[str] = None,
 ) -> tuple[Solicitud, bool]:
     """Guarda en PostgreSQL una solicitud recibida desde la app móvil real de WhatsApp,
     vincula/crea el usuario y responde automáticamente por Meta Cloud API.
@@ -426,6 +427,8 @@ def create_solicitud_from_whatsapp(
     ia_meta: dict[str, Any] = clasificacion.model_dump()
     if transcription_model:
         ia_meta["modelo_transcripcion"] = transcription_model
+    if audio_error_detail:
+        ia_meta["error_transcripcion"] = audio_error_detail[:300]
 
     phone_display = user.telefono or format_display_phone(from_phone)
 
@@ -458,7 +461,11 @@ def create_solicitud_from_whatsapp(
     db.flush()
 
     origen_label = (
-        "nota de voz (transcrita)" if tipo_mensaje_origen == "audio" else "mensaje de texto"
+        "nota de voz (pendiente de transcripción)"
+        if tipo_mensaje_origen == "audio" and audio_error_detail
+        else "nota de voz (transcrita)"
+        if tipo_mensaje_origen == "audio"
+        else "mensaje de texto"
     )
     perfil_label = (
         "Nuevo perfil creado (Pendiente de completar datos)"

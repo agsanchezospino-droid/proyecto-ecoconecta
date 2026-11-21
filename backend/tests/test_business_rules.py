@@ -559,3 +559,50 @@ def test_human_tts_normalizer_and_endpoint(client, monkeypatch):
     assert res_ok.content.startswith(b"ID3")
 
 
+def test_whatsapp_audio_saved_even_when_transcription_unavailable(client):
+    """Aunque falten WHATSAPP_TOKEN o OPENAI_API_KEY, un audio entrante al webhook
+    jamás debe descartarse: debe guardarse en PostgreSQL y aparecer en /coordinacion y Mis Pedidos.
+    """
+    h_hogar = auth_headers(client, "hogar@villas.demo")
+    h_reciclaje = auth_headers(client, "coord.reciclaje@villas.demo")
+
+    wamid = f"wamid.audio.notoken.{uuid.uuid4().hex}"
+    res = client.post(
+        "/api/webhooks/whatsapp",
+        json=_meta_audio_payload(
+            from_phone="573000000102",  # Teléfono registrado de hogar@villas.demo
+            profile_name="Familia Mendoza Polo",
+            media_id="MEDIA_AUDIO_FALLBACK_001",
+            wamid=wamid,
+        ),
+    )
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["processed_count"] == 1
+    proc = body["processed"][0]
+    assert proc["tipo_mensaje"] == "audio"
+    assert proc["pendiente_transcripcion"] is True
+    sol_id = proc["solicitud_id"]
+    codigo = proc["codigo"]
+
+    # Debe aparecer en Mis Pedidos de hogar@villas.demo
+    mias = client.get("/api/v1/solicitudes/mias", headers=h_hogar)
+    assert mias.status_code == 200
+    assert any(
+        s["codigo"] == codigo and s["tipo_mensaje_origen"] == "audio"
+        for s in mias.json()
+    )
+
+    # Y debe aparecer en /coordinacion marcado para revisar flujo
+    coord_det = client.get(
+        f"/api/v1/coordinacion/solicitudes/{sol_id}",
+        headers=h_reciclaje,
+    )
+    assert coord_det.status_code == 200
+    det = coord_det.json()
+    assert det["tipo_mensaje_origen"] == "audio"
+    assert det["requiere_revision_flujo"] is True
+    assert "pendiente de transcripción" in det["mensaje_original"].lower()
+
+
+

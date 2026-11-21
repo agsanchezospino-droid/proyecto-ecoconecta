@@ -12,6 +12,7 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.models.entities import Solicitud
 from app.services.ai_classifier import (
+    ClasificacionSolicitudIA,
     classify_whatsapp_request,
     transcribe_audio_spanish,
 )
@@ -133,47 +134,42 @@ async def receive_whatsapp_webhook(
                 tipo_origen = "texto"
                 media_id: Optional[str] = None
                 transcription_model: Optional[str] = None
+                audio_error_detail: Optional[str] = None
                 text_content = ""
 
                 if msg_type == "text":
                     text_content = str((msg.get("text") or {}).get("body") or "").strip()
                     tipo_origen = "texto"
-                elif msg_type == "audio":
-                    audio_obj = msg.get("audio") or {}
+                elif msg_type in ("audio", "voice"):
+                    audio_obj = msg.get("audio") or msg.get("voice") or {}
                     media_id = str(audio_obj.get("id") or "").strip() or None
                     mime_hint = str(audio_obj.get("mime_type") or "audio/ogg")
                     tipo_origen = "audio"
                     if not media_id:
-                        ignored.append({"id": msg_id, "reason": "missing_audio_media_id"})
-                        continue
-                    try:
-                        audio_bytes, real_mime = whatsapp_service.download_media(media_id)
-                        text_content, transcription_model = transcribe_audio_spanish(
-                            audio_bytes, real_mime or mime_hint
+                        audio_error_detail = "Nota de voz sin media_id en el payload."
+                        text_content = (
+                            "[Nota de voz recibida por WhatsApp — sin archivo adjunto "
+                            "identificable. Contactar al vecino por WhatsApp.]"
                         )
-                    except Exception as exc:
-                        logger.exception(
-                            "Error descargando o transcribiendo audio WhatsApp %s", media_id
-                        )
-                        whatsapp_service.send_message(
-                            db,
-                            solicitud_id=None,
-                            flujo="organico",
-                            destinatario_nombre=profile_name or "Vecino",
-                            destinatario_telefono=from_phone,
-                            tipo_evento="error_transcripcion_audio",
-                            mensaje=(
-                                "Hola, recibimos tu nota de voz en EcoConecta – Villas de San Pablo, "
-                                "pero tuvimos un inconveniente técnico al procesarla. Por favor "
-                                "envíanos un mensaje de texto o intenta con otra nota de voz indicando "
-                                "si son residuos orgánicos o reciclables y tu dirección."
-                            ),
-                        )
-                        db.commit()
-                        ignored.append(
-                            {"id": msg_id, "reason": "audio_processing_error", "detail": str(exc)}
-                        )
-                        continue
+                    else:
+                        try:
+                            audio_bytes, real_mime = whatsapp_service.download_media(media_id)
+                            text_content, transcription_model = transcribe_audio_spanish(
+                                audio_bytes, real_mime or mime_hint
+                            )
+                        except Exception as exc:
+                            logger.warning(
+                                "Audio WhatsApp %s guardado pendiente de transcripción (%s)",
+                                media_id,
+                                exc,
+                            )
+                            audio_error_detail = str(exc)
+                            transcription_model = "pendiente_transcripcion"
+                            text_content = (
+                                "[Nota de voz recibida por WhatsApp — pendiente de "
+                                "transcripción automática. Revisar el audio en WhatsApp o "
+                                "confirmar el detalle con el vecino.]"
+                            )
                 elif msg_type == "button":
                     text_content = str((msg.get("button") or {}).get("text") or "").strip()
                 elif msg_type == "interactive":
@@ -202,8 +198,25 @@ async def receive_whatsapp_webhook(
                     ignored.append({"id": msg_id, "reason": "empty_text"})
                     continue
 
-                # Clasificación estructurada con gpt-4o-mini (sin enviar PII innecesario)
-                clasificacion = classify_whatsapp_request(text_content)
+                # Si la nota de voz no pudo transcribirse, NO descartamos el pedido:
+                # lo guardamos marcado para revisión en /coordinacion y visible en Mis Pedidos.
+                if audio_error_detail:
+                    clasificacion = ClasificacionSolicitudIA(
+                        flujo="reciclable",
+                        tipo_generador="hogar",
+                        direccion_mencionada=None,
+                        resumen_material=(
+                            "Nota de voz pendiente de transcripción automática "
+                            "(verificar flujo y dirección con el vecino)."
+                        ),
+                        preferencia_horaria=None,
+                        requiere_revision_flujo=True,
+                        confianza=0.0,
+                        fuente="audio_pendiente_transcripcion",
+                    )
+                else:
+                    # Clasificación estructurada con gpt-4o-mini (sin enviar PII innecesario)
+                    clasificacion = classify_whatsapp_request(text_content)
 
                 solicitud, created_now = create_solicitud_from_whatsapp(
                     db,
@@ -215,6 +228,7 @@ async def receive_whatsapp_webhook(
                     clasificacion=clasificacion,
                     whatsapp_media_id=media_id,
                     transcription_model=transcription_model,
+                    audio_error_detail=audio_error_detail,
                 )
                 processed.append(
                     {
@@ -222,6 +236,7 @@ async def receive_whatsapp_webhook(
                         "codigo": solicitud.codigo,
                         "flujo": solicitud.flujo,
                         "tipo_mensaje": tipo_origen,
+                        "pendiente_transcripcion": bool(audio_error_detail),
                         "duplicado": not created_now,
                         "usuario_id": solicitud.usuario_id,
                     }
