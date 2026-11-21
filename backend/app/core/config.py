@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     ENABLE_DEMO_QUICK_LOGIN: bool = True
 
     # WhatsApp Business Cloud API (Meta) — Canal móvil real exclusivo
-    WHATSAPP_PUBLIC_NUMBER: str = "573235017843"
+    WHATSAPP_PUBLIC_NUMBER: str = ""
     WHATSAPP_API_VERSION: str = "v21.0"
     WHATSAPP_PHONE_NUMBER_ID: str = ""
     WHATSAPP_TOKEN: str = ""
@@ -73,8 +73,7 @@ class Settings(BaseSettings):
 
     @property
     def whatsapp_public_number_clean(self) -> str:
-        digits = re.sub(r"\D+", "", self.WHATSAPP_PUBLIC_NUMBER or "")
-        return digits or "573235017843"
+        return re.sub(r"\D+", "", self.WHATSAPP_PUBLIC_NUMBER or "")
 
     @property
     def whatsapp_has_credentials(self) -> bool:

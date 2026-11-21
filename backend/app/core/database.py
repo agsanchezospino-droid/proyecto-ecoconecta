@@ -51,6 +51,7 @@ def ensure_schema_compatibility(bind_engine: Engine) -> None:
         "ALTER TABLE solicitudes ADD COLUMN IF NOT EXISTS whatsapp_media_id VARCHAR(120)",
         "ALTER TABLE solicitudes ADD COLUMN IF NOT EXISTS requiere_revision_flujo BOOLEAN NOT NULL DEFAULT FALSE",
         "ALTER TABLE solicitudes ADD COLUMN IF NOT EXISTS clasificacion_ia JSONB",
+        "CREATE INDEX IF NOT EXISTS ix_sesiones_whatsapp_telefono ON sesiones_whatsapp (telefono_normalizado)",
     ]
     with bind_engine.begin() as conn:
         for stmt in statements:

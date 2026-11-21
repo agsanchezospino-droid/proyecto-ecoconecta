@@ -124,7 +124,7 @@ def test_pii_redaction_keeps_address_and_strips_phone_and_email():
     assert "cáscaras de plátano" in sanitized
 
 
-def test_webhook_verification_and_no_web_chat_endpoints(client: TestClient):
+def test_webhook_verification_and_no_web_chat_endpoints(client: TestClient, monkeypatch):
     # GET /api/webhooks/whatsapp con verify_token correcto
     ok = client.get(
         "/api/webhooks/whatsapp",
@@ -148,10 +148,18 @@ def test_webhook_verification_and_no_web_chat_endpoints(client: TestClient):
     )
     assert bad.status_code == 403
 
-    # Config pública entrega enlace oficial wa.me
+    # Sin número personal hardcodeado: si WHATSAPP_PUBLIC_NUMBER está vacío, devuelve vacío
+    monkeypatch.setattr(settings, "WHATSAPP_PUBLIC_NUMBER", "")
+    cfg_empty = client.get("/api/v1/public/config")
+    assert cfg_empty.status_code == 200
+    assert cfg_empty.json()["whatsapp_public_number"] == ""
+    assert cfg_empty.json()["whatsapp_url"] == ""
+
+    # Con variable de entorno configurada, genera enlace oficial wa.me
+    monkeypatch.setattr(settings, "WHATSAPP_PUBLIC_NUMBER", "573001234567")
     cfg = client.get("/api/v1/public/config")
     assert cfg.status_code == 200
-    assert cfg.json()["whatsapp_url"].startswith("https://wa.me/")
+    assert cfg.json()["whatsapp_url"].startswith("https://wa.me/573001234567?text=")
     assert "Hola,%20quiero%20pedir%20una%20recolecci%C3%B3n%20en%20Villas%20de%20San%20Pablo" in cfg.json()["whatsapp_url"]
 
     # Confirmar que NO existen endpoints web para crear solicitudes ni chat interno web
@@ -657,6 +665,202 @@ def test_admin_views_both_collectives_readonly_and_cannot_add_member(client):
     )
     assert ok_rec.status_code == 201, ok_rec.text
     assert ok_rec.json()["flujo"] == "reciclable"
+
+
+def test_whatsapp_chatbot_greeting_menu_sessions_and_end_to_end_closure(client):
+    """Prueba completa del chatbot WhatsApp con `sesiones_whatsapp` + `solicitudes`:
+    1. Saludo 'Hola' -> menú sencillo para adultos mayores (1 Orgánicos, 2 Reciclables, nota de voz)
+    2. Opción '1' + detalle de dirección -> guarda en 'organico', aparece en Coordinador Huerteros,
+       asigna recolector, cierra en kg (1 kg = 1 pt) y acredita puntos.
+    3. Mensaje directo reciclable -> guarda en 'reciclable' sin duplicados, aparece en Coordinador
+       Recicladores, asigna recolector, cierra en lb (1 lb = 0.5 pts) y acredita puntos.
+    """
+    from sqlalchemy import select as sa_select
+    from app.models.entities import NotificacionWhatsApp, SesionWhatsApp
+
+    h_huerta = auth_headers(client, "coord.huerta@villas.demo")
+    h_reciclaje = auth_headers(client, "coord.reciclaje@villas.demo")
+
+    phone = f"57318{uuid.uuid4().int % 10000000:07d}"
+
+    # 1. Saludo "Hola" -> guarda sesión en `sesiones_whatsapp` y envía menú 1/2/audio
+    wamid_hola = f"wamid.hola.{uuid.uuid4().hex}"
+    res_hola = client.post(
+        "/api/webhooks/whatsapp",
+        json=_meta_text_payload(
+            from_phone=phone,
+            profile_name="Don Ernesto Salas",
+            body="Hola",
+            wamid=wamid_hola,
+        ),
+    )
+    assert res_hola.status_code == 200, res_hola.text
+    p_hola = res_hola.json()["processed"][0]
+    assert p_hola["action"] == "menu_enviado"
+    assert p_hola["sesion_estado"] == "esperando_opcion"
+
+    # Reenvío duplicado de "Hola" con mismo wamid -> deduplicado
+    res_hola_dup = client.post(
+        "/api/webhooks/whatsapp",
+        json=_meta_text_payload(
+            from_phone=phone,
+            profile_name="Don Ernesto Salas",
+            body="Hola",
+            wamid=wamid_hola,
+        ),
+    )
+    assert res_hola_dup.status_code == 200
+    assert res_hola_dup.json()["processed"][0]["duplicado"] is True
+
+    # Verificar estado persistido en PostgreSQL (`sesiones_whatsapp`) y texto del menú enviado
+    db = SessionLocal()
+    try:
+        ses = db.scalar(
+            sa_select(SesionWhatsApp).where(SesionWhatsApp.telefono_normalizado == phone)
+        )
+        assert ses is not None
+        assert ses.estado == "esperando_opcion"
+        notif_menu = db.scalar(
+            sa_select(NotificacionWhatsApp)
+            .where(
+                NotificacionWhatsApp.destinatario_telefono == phone,
+                NotificacionWhatsApp.tipo_evento == "menu_bienvenida",
+            )
+            .order_by(NotificacionWhatsApp.id.desc())
+        )
+        assert notif_menu is not None
+        assert "Orgánicos" in notif_menu.mensaje
+        assert "Reciclables" in notif_menu.mensaje
+        assert "nota de voz" in notif_menu.mensaje.lower()
+    finally:
+        db.close()
+
+    # 2. Usuario responde "1" -> selecciona Orgánicos en `sesiones_whatsapp`
+    res_opt = client.post(
+        "/api/webhooks/whatsapp",
+        json=_meta_text_payload(
+            from_phone=phone,
+            profile_name="Don Ernesto Salas",
+            body="1",
+            wamid=f"wamid.opt1.{uuid.uuid4().hex}",
+        ),
+    )
+    assert res_opt.status_code == 200, res_opt.text
+    p_opt = res_opt.json()["processed"][0]
+    assert p_opt["action"] == "opcion_seleccionada"
+    assert p_opt["flujo"] == "organico"
+    assert p_opt["sesion_estado"] == "esperando_detalle_organico"
+
+    # 3. Usuario responde con su dirección/horario -> crea solicitud orgánica y reinicia sesión
+    res_det = client.post(
+        "/api/webhooks/whatsapp",
+        json=_meta_text_payload(
+            from_phone=phone,
+            profile_name="Don Ernesto Salas",
+            body="Manzana 15 Casa 3, mañana a las 8 am",
+            wamid=f"wamid.det1.{uuid.uuid4().hex}",
+        ),
+    )
+    assert res_det.status_code == 200, res_det.text
+    p_det = res_det.json()["processed"][0]
+    assert p_det["action"] == "solicitud_creada"
+    assert p_det["flujo"] == "organico"
+    org_sol_id = p_det["solicitud_id"]
+    org_code = p_det["codigo"]
+    assert org_code.startswith("ECO-")
+
+    # Verificar que apareció en la bandeja del Coordinador de Huerteros (y NO en Recicladores)
+    bandeja_h = client.get("/api/v1/coordinacion/solicitudes", headers=h_huerta)
+    assert bandeja_h.status_code == 200
+    assert any(s["id"] == org_sol_id for s in bandeja_h.json())
+
+    bandeja_r = client.get("/api/v1/coordinacion/solicitudes", headers=h_reciclaje)
+    assert bandeja_r.status_code == 200
+    assert all(s["id"] != org_sol_id for s in bandeja_r.json())
+
+    # Coordinador de Huerteros asigna recolector y cierra con 4 kg -> +4.0 pts (1 kg = 1 pt)
+    col_h = client.get("/api/v1/coordinacion/colectivo", headers=h_huerta).json()
+    huertero = col_h[0]
+    tomorrow = (date.today() + timedelta(days=1)).isoformat()
+    sched_h = client.post(
+        f"/api/v1/coordinacion/solicitudes/{org_sol_id}/programar",
+        headers=h_huerta,
+        json={
+            "fecha_programada": tomorrow,
+            "hora_programada": "08:00",
+            "encargado_id": huertero["id"],
+            "nombre_encargado": huertero["nombre"],
+        },
+    )
+    assert sched_h.status_code == 200, sched_h.text
+
+    close_h = client.post(
+        f"/api/v1/coordinacion/solicitudes/{org_sol_id}/cerrar",
+        headers=h_huerta,
+        json={
+            "nombre_solicitante_verificado": "Don Ernesto Salas",
+            "peso_ingresado": 4.0,
+            "unidad_medida": "kg",
+            "encargado_id": huertero["id"],
+            "nombre_encargado": huertero["nombre"],
+        },
+    )
+    assert close_h.status_code == 200, close_h.text
+    assert close_h.json()["estado"] == "recolectada"
+    assert close_h.json()["registro_recoleccion"]["puntos_calculados"] == 4.0
+
+    # 4. Mensaje directo reciclable (sin pasar por menú) -> crea solicitud reciclable sin duplicados
+    wamid_rec = f"wamid.rec.{uuid.uuid4().hex}"
+    rec_payload = _meta_text_payload(
+        from_phone="573000000102",
+        profile_name="Familia Mendoza Polo",
+        body="Tengo cajas de cartón y botellas plásticas limpias en Manzana 22 Casa 15 para la tarde",
+        wamid=wamid_rec,
+    )
+    res_rec = client.post("/api/webhooks/whatsapp", json=rec_payload)
+    assert res_rec.status_code == 200, res_rec.text
+    p_rec = res_rec.json()["processed"][0]
+    assert p_rec["action"] == "solicitud_creada"
+    assert p_rec["flujo"] == "reciclable"
+    rec_sol_id = p_rec["solicitud_id"]
+
+    # Deduplicación del mismo mensaje reciclable
+    res_rec_dup = client.post("/api/webhooks/whatsapp", json=rec_payload)
+    assert res_rec_dup.status_code == 200
+    assert res_rec_dup.json()["processed"][0]["duplicado"] is True
+    assert res_rec_dup.json()["processed"][0]["solicitud_id"] == rec_sol_id
+
+    # Coordinador de Recicladores ve el pedido, asigna reciclador y cierra en libras (6 lb = 3.0 pts)
+    col_r = client.get("/api/v1/coordinacion/colectivo", headers=h_reciclaje).json()
+    reciclador = col_r[0]
+    sched_r = client.post(
+        f"/api/v1/coordinacion/solicitudes/{rec_sol_id}/programar",
+        headers=h_reciclaje,
+        json={
+            "fecha_programada": tomorrow,
+            "hora_programada": "15:00",
+            "encargado_id": reciclador["id"],
+            "nombre_encargado": reciclador["nombre"],
+        },
+    )
+    assert sched_r.status_code == 200, sched_r.text
+
+    close_r = client.post(
+        f"/api/v1/coordinacion/solicitudes/{rec_sol_id}/cerrar",
+        headers=h_reciclaje,
+        json={
+            "nombre_solicitante_verificado": "Familia Mendoza Polo",
+            "peso_ingresado": 6.0,
+            "unidad_medida": "lb",
+            "encargado_id": reciclador["id"],
+            "nombre_encargado": reciclador["nombre"],
+        },
+    )
+    assert close_r.status_code == 200, close_r.text
+    assert close_r.json()["estado"] == "recolectada"
+    assert close_r.json()["registro_recoleccion"]["peso_kg"] == 3.0
+    assert close_r.json()["registro_recoleccion"]["puntos_calculados"] == 3.0
+
 
 
 

@@ -38,6 +38,32 @@ export default function WhatsAppCtaButton({
         ? "min-h-[60px] rounded-2xl px-6 py-3.5 text-lg font-extrabold shadow-md sm:text-xl"
         : "min-h-[56px] rounded-2xl px-5 py-3 text-lg font-extrabold shadow-sm";
 
+  if (!href) {
+    return (
+      <div className={`space-y-2 ${className}`}>
+        <button
+          type="button"
+          disabled
+          aria-disabled="true"
+          title="Configura NEXT_PUBLIC_WHATSAPP_PUBLIC_NUMBER con el número oficial de WhatsApp Business."
+          className={`inline-flex w-full cursor-not-allowed items-center justify-center gap-3 border-2 border-stone-300 bg-stone-200 text-center text-gray-800 ${sizeClass}`}
+        >
+          <MessageCircle
+            className={size === "xl" ? "h-7 w-7 shrink-0" : "h-6 w-6 shrink-0"}
+          />
+          <span>WhatsApp oficial pendiente de configurar</span>
+        </button>
+        <p className="text-center text-base font-semibold text-gray-800">
+          El botón se activará al conectar el número oficial en{" "}
+          <code className="rounded bg-stone-200 px-1.5 py-0.5 text-sm font-bold text-gray-900">
+            NEXT_PUBLIC_WHATSAPP_PUBLIC_NUMBER
+          </code>
+          .
+        </p>
+      </div>
+    );
+  }
+
   return (
     <a
       href={href}

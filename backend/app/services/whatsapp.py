@@ -41,8 +41,10 @@ def build_whatsapp_deeplink(
     text: str = DEFAULT_WHATSAPP_PREFILL_TEXT,
 ) -> str:
     clean_num = re.sub(
-        r"\D+", "", public_number or settings.whatsapp_public_number_clean
+        r"\D+", "", public_number if public_number is not None else settings.whatsapp_public_number_clean
     )
+    if not clean_num:
+        return ""
     encoded = quote(text, safe=",")
     return f"https://wa.me/{clean_num}?text={encoded}"
 

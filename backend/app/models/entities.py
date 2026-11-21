@@ -478,3 +478,33 @@ class GuiaResiduo(Base):
     descripcion: Mapped[str] = mapped_column(Text, nullable=False)
     buenas_practicas: Mapped[str] = mapped_column(Text, nullable=False)
     horario_referencia: Mapped[str] = mapped_column(String(120), nullable=False)
+
+
+class SesionWhatsApp(Base):
+    """Estado conversacional del chatbot de WhatsApp por teléfono (menú inclusivo 1/2/audio)."""
+
+    __tablename__ = "sesiones_whatsapp"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    telefono_normalizado: Mapped[str] = mapped_column(
+        String(30), unique=True, nullable=False, index=True
+    )
+    usuario_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("usuarios.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    estado: Mapped[str] = mapped_column(
+        String(40), nullable=False, default="inicio", index=True
+    )
+    flujo_seleccionado: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    ultimo_mensaje_id: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    datos_temporales: Mapped[Optional[dict[str, Any]]] = mapped_column(
+        JSON().with_variant(JSONB(), "postgresql"), nullable=True
+    )
+    creado_en: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utcnow
+    )
+    actualizado_en: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow
+    )
+
+    usuario: Mapped[Optional["Usuario"]] = relationship("Usuario")

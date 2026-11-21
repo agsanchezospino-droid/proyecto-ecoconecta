@@ -42,7 +42,7 @@ services:
       - key: ENABLE_DEMO_QUICK_LOGIN
         value: "true"
       - key: WHATSAPP_PUBLIC_NUMBER
-        value: "573235017843"
+        value: ""
       - key: WHATSAPP_API_VERSION
         value: v21.0
       - key: WHATSAPP_VERIFY_TOKEN
@@ -69,7 +69,7 @@ services:
       - key: NEXT_PUBLIC_APP_NAME
         value: EcoConecta – Villas de San Pablo
       - key: NEXT_PUBLIC_WHATSAPP_PUBLIC_NUMBER
-        value: "573235017843"
+        value: ""
       - key: INTERNAL_API_URL
         fromService:
           type: web

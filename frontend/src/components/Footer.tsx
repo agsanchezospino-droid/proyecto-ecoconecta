@@ -30,15 +30,24 @@ export default function Footer() {
               Conectamos a tu barrio con los huerteros y recicladores a través
               de WhatsApp.
             </p>
-            <a
-              href={whatsappUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex min-h-[48px] items-center gap-2 rounded-xl border-2 border-huerta-600 bg-huerta-50 px-4 py-2 text-base font-extrabold text-huerta-900 transition hover:bg-huerta-100"
-            >
-              <MessageCircle className="h-5 w-5 shrink-0 text-[#15803D]" />
-              <span>WhatsApp: {formatWhatsAppDisplayNumber(whatsappNumber)}</span>
-            </a>
+            {whatsappUrl ? (
+              <a
+                href={whatsappUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex min-h-[48px] items-center gap-2 rounded-xl border-2 border-huerta-600 bg-huerta-50 px-4 py-2 text-base font-extrabold text-huerta-900 transition hover:bg-huerta-100"
+              >
+                <MessageCircle className="h-5 w-5 shrink-0 text-[#15803D]" />
+                <span>
+                  WhatsApp: {formatWhatsAppDisplayNumber(whatsappNumber)}
+                </span>
+              </a>
+            ) : (
+              <p className="inline-flex min-h-[48px] items-center gap-2 rounded-xl border-2 border-stone-300 bg-stone-100 px-4 py-2 text-base font-bold text-gray-800">
+                <MessageCircle className="h-5 w-5 shrink-0 text-gray-700" />
+                <span>WhatsApp oficial pendiente de configurar</span>
+              </p>
+            )}
           </div>
 
           <div className="space-y-2">
