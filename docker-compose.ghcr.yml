@@ -1,0 +1,77 @@
+# ==============================================================================
+# EcoConecta – Villas de San Pablo
+# Ejecución usando imágenes Docker publicadas automáticamente en GitHub (GHCR).
+# Uso:
+#   docker compose -f docker-compose.ghcr.yml pull
+#   docker compose -f docker-compose.ghcr.yml up -d
+# ==============================================================================
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: ecoconecta_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-ecoconecta}
+      POSTGRES_USER: ${POSTGRES_USER:-ecoconecta_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ecoconecta_local_dev}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ecoconecta_user} -d ${POSTGRES_DB:-ecoconecta}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    image: ghcr.io/${GITHUB_REPOSITORY:-agsanchezospino-droid/proyecto-ecoconecta}-backend:${IMAGE_TAG:-latest}
+    container_name: ecoconecta_backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://ecoconecta_user:ecoconecta_local_dev@db:5432/ecoconecta}
+      SECRET_KEY: ${SECRET_KEY:-dev_only_secret_key_change_in_production_32chars}
+      JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-720}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
+      AUTO_SEED: ${AUTO_SEED:-true}
+      ENABLE_DEMO_QUICK_LOGIN: ${ENABLE_DEMO_QUICK_LOGIN:-true}
+      WHATSAPP_PUBLIC_NUMBER: ${WHATSAPP_PUBLIC_NUMBER:-573000000000}
+      WHATSAPP_API_VERSION: ${WHATSAPP_API_VERSION:-v21.0}
+      WHATSAPP_PHONE_NUMBER_ID: ${WHATSAPP_PHONE_NUMBER_ID:-}
+      WHATSAPP_TOKEN: ${WHATSAPP_TOKEN:-}
+      WHATSAPP_ACCESS_TOKEN: ${WHATSAPP_ACCESS_TOKEN:-}
+      WHATSAPP_VERIFY_TOKEN: ${WHATSAPP_VERIFY_TOKEN:-ecoconecta_verify_token_2026}
+      WHATSAPP_APP_SECRET: ${WHATSAPP_APP_SECRET:-}
+      WHATSAPP_DEFAULT_COUNTRY_CODE: ${WHATSAPP_DEFAULT_COUNTRY_CODE:-57}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_TRANSCRIBE_MODEL: ${OPENAI_TRANSCRIBE_MODEL:-gpt-4o-mini-transcribe}
+      OPENAI_CLASSIFIER_MODEL: ${OPENAI_CLASSIFIER_MODEL:-gpt-4o-mini}
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  frontend:
+    image: ghcr.io/${GITHUB_REPOSITORY:-agsanchezospino-droid/proyecto-ecoconecta}-frontend:${IMAGE_TAG:-latest}
+    container_name: ecoconecta_frontend
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-/api/v1}
+      INTERNAL_API_URL: ${INTERNAL_API_URL:-http://backend:8000}
+      NEXT_PUBLIC_APP_NAME: ${NEXT_PUBLIC_APP_NAME:-EcoConecta – Villas de San Pablo}
+      NEXT_PUBLIC_WHATSAPP_PUBLIC_NUMBER: ${WHATSAPP_PUBLIC_NUMBER:-573000000000}
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+
+volumes:
+  postgres_data:

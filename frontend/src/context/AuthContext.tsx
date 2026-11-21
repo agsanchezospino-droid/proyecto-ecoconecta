@@ -1,0 +1,156 @@
+"use client";
+
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
+
+import { apiFetch, getStoredToken, setStoredToken } from "@/lib/api";
+import type { AuthResponse, FlujoResiduo, Usuario } from "@/lib/types";
+
+interface RegisterInput {
+  nombre: string;
+  email: string;
+  password: string;
+  rol: "hogar" | "unidad_productiva";
+  telefono: string;
+  direccion: string;
+  barrio_sector?: string;
+}
+
+interface AuthContextValue {
+  user: Usuario | null;
+  loading: boolean;
+  isCoordinatorOrAdmin: boolean;
+  isAdmin: boolean;
+  coordinatorFlow: FlujoResiduo | null;
+  login: (email: string, password: string) => Promise<Usuario>;
+  demoLogin: (email: string) => Promise<Usuario>;
+  register: (payload: RegisterInput) => Promise<Usuario>;
+  logout: () => void;
+  refreshUser: () => Promise<void>;
+}
+
+const AuthContext = createContext<AuthContextValue | undefined>(undefined);
+
+export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const [user, setUser] = useState<Usuario | null>(null);
+  const [loading, setLoading] = useState<boolean>(true);
+
+  const refreshUser = useCallback(async () => {
+    const token = getStoredToken();
+    if (!token) {
+      setUser(null);
+      setLoading(false);
+      return;
+    }
+    try {
+      const me = await apiFetch<Usuario>("/auth/me");
+      setUser(me);
+    } catch {
+      setStoredToken(null);
+      setUser(null);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshUser();
+  }, [refreshUser]);
+
+  const login = useCallback(async (email: string, password: string) => {
+    const res = await apiFetch<AuthResponse>("/auth/login", {
+      method: "POST",
+      auth: false,
+      body: JSON.stringify({ email, password }),
+    });
+    setStoredToken(res.access_token);
+    setUser(res.usuario);
+    return res.usuario;
+  }, []);
+
+  const demoLogin = useCallback(async (email: string) => {
+    const res = await apiFetch<AuthResponse>("/auth/demo-login", {
+      method: "POST",
+      auth: false,
+      body: JSON.stringify({ email }),
+    });
+    setStoredToken(res.access_token);
+    setUser(res.usuario);
+    return res.usuario;
+  }, []);
+
+  const register = useCallback(async (payload: RegisterInput) => {
+    const res = await apiFetch<AuthResponse>("/auth/register", {
+      method: "POST",
+      auth: false,
+      body: JSON.stringify(payload),
+    });
+    setStoredToken(res.access_token);
+    setUser(res.usuario);
+    return res.usuario;
+  }, []);
+
+  const logout = useCallback(() => {
+    setStoredToken(null);
+    setUser(null);
+  }, []);
+
+  const isCoordinatorOrAdmin = Boolean(
+    user &&
+      (user.rol === "coordinador_huerteros" ||
+        user.rol === "coordinador_recicladores" ||
+        user.rol === "administrador")
+  );
+
+  const isAdmin = Boolean(user && user.rol === "administrador");
+
+  const coordinatorFlow: FlujoResiduo | null =
+    user?.rol === "coordinador_huerteros"
+      ? "organico"
+      : user?.rol === "coordinador_recicladores"
+        ? "reciclable"
+        : null;
+
+  const value = useMemo(
+    () => ({
+      user,
+      loading,
+      isCoordinatorOrAdmin,
+      isAdmin,
+      coordinatorFlow,
+      login,
+      demoLogin,
+      register,
+      logout,
+      refreshUser,
+    }),
+    [
+      user,
+      loading,
+      isCoordinatorOrAdmin,
+      isAdmin,
+      coordinatorFlow,
+      login,
+      demoLogin,
+      register,
+      logout,
+      refreshUser,
+    ]
+  );
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+}
+
+export function useAuth(): AuthContextValue {
+  const ctx = useContext(AuthContext);
+  if (!ctx) {
+    throw new Error("useAuth debe utilizarse dentro de AuthProvider.");
+  }
+  return ctx;
+}
