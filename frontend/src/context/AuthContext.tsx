@@ -32,7 +32,7 @@ interface AuthContextValue {
   demoLogin: (email: string) => Promise<Usuario>;
   register: (payload: RegisterInput) => Promise<Usuario>;
   logout: () => void;
-  refreshUser: () => Promise<void>;
+  refreshUser: () => Promise<Usuario | null>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -41,19 +41,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<Usuario | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
 
-  const refreshUser = useCallback(async () => {
+  const refreshUser = useCallback(async (): Promise<Usuario | null> => {
     const token = getStoredToken();
     if (!token) {
       setUser(null);
       setLoading(false);
-      return;
+      return null;
     }
     try {
       const me = await apiFetch<Usuario>("/auth/me");
+      // Evita sobrescribir si el usuario cerró sesión o cambió de cuenta durante la petición
+      if (getStoredToken() !== token) {
+        return null;
+      }
       setUser(me);
+      return me;
     } catch {
-      setStoredToken(null);
-      setUser(null);
+      if (getStoredToken() === token) {
+        setStoredToken(null);
+        setUser(null);
+      }
+      return null;
     } finally {
       setLoading(false);
     }
@@ -71,6 +79,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
     setStoredToken(res.access_token);
     setUser(res.usuario);
+    setLoading(false);
     return res.usuario;
   }, []);
 
@@ -82,6 +91,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
     setStoredToken(res.access_token);
     setUser(res.usuario);
+    setLoading(false);
     return res.usuario;
   }, []);
 
@@ -93,12 +103,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
     setStoredToken(res.access_token);
     setUser(res.usuario);
+    setLoading(false);
     return res.usuario;
   }, []);
 
   const logout = useCallback(() => {
     setStoredToken(null);
     setUser(null);
+    setLoading(false);
   }, []);
 
   const isCoordinatorOrAdmin = Boolean(

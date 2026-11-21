@@ -56,16 +56,16 @@ DEMO_ACCOUNTS_METADATA: dict[str, dict] = {
 def _to_usuario_out(db: Session, user: Usuario) -> UsuarioOut:
     return UsuarioOut(
         id=user.id,
-        nombre=user.nombre,
+        nombre=user.nombre or "",
         email=user.email,
         rol=user.rol,
         telefono=user.telefono,
         direccion=user.direccion,
-        barrio_sector=user.barrio_sector,
-        es_piloto=user.es_piloto,
-        habilitado_solicitudes=user.habilitado_solicitudes,
-        pendiente_completar_datos=user.pendiente_completar_datos,
-        activo=user.activo,
+        barrio_sector=user.barrio_sector or "Villas de San Pablo",
+        es_piloto=bool(user.es_piloto),
+        habilitado_solicitudes=bool(user.habilitado_solicitudes),
+        pendiente_completar_datos=bool(user.pendiente_completar_datos),
+        activo=bool(user.activo),
         puntos_acumulados=get_user_points_total(db, user.id),
         creado_en=user.creado_en,
     )
@@ -179,4 +179,15 @@ def register_citizen(
 def get_me(
     current_user: Usuario = Depends(get_current_user), db: Session = Depends(get_db)
 ) -> UsuarioOut:
+    return _to_usuario_out(db, current_user)
+
+
+usuarios_router = APIRouter(prefix="/usuarios", tags=["Usuarios"])
+
+
+@usuarios_router.get("/me", response_model=UsuarioOut)
+def get_usuario_me(
+    current_user: Usuario = Depends(get_current_user), db: Session = Depends(get_db)
+) -> UsuarioOut:
+    """Alias seguro de perfil de cuenta para todos los roles autenticados (incluidos hogar y unidad_productiva)."""
     return _to_usuario_out(db, current_user)

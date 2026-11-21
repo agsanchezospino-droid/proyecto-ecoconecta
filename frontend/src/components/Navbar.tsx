@@ -87,7 +87,7 @@ export default function Navbar() {
         </Link>
 
         {/* Desktop navigation */}
-        <nav className="hidden items-center gap-1.5 md:flex">
+        <nav className="hidden items-center gap-1.5 lg:flex">
           <Link
             href="/"
             className={`rounded-lg px-3 py-2 text-sm font-semibold transition ${
@@ -150,7 +150,7 @@ export default function Navbar() {
               </Link>
               <Link
                 href="/mi-cuenta"
-                className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-semibold transition ${
+                className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-2 text-sm font-semibold transition ${
                   pathname === "/mi-cuenta"
                     ? "bg-stone-900 text-white"
                     : "text-stone-700 hover:bg-stone-100"
@@ -178,22 +178,37 @@ export default function Navbar() {
 
           {user ? (
             <div className="ml-2 flex items-center gap-2 border-l border-stone-300/40 pl-3">
-              <div className="text-right leading-tight">
-                <p
-                  className={`max-w-[140px] truncate text-xs font-bold ${
-                    isCoordRoute ? "text-white" : "text-stone-800"
-                  }`}
+              {!isCoordinatorOrAdmin ? (
+                <Link
+                  href="/mi-cuenta"
+                  className="rounded-lg px-1.5 py-0.5 text-right leading-tight transition hover:bg-stone-100"
+                  title="Ir a Mi Cuenta"
                 >
-                  {user.nombre}
-                </p>
-                <p
-                  className={`text-[11px] font-medium ${
-                    isCoordRoute ? "text-stone-400" : "text-stone-500"
-                  }`}
-                >
-                  {ROLE_LABELS[user.rol] || user.rol}
-                </p>
-              </div>
+                  <p className="max-w-[140px] truncate text-xs font-bold text-stone-800">
+                    {user.nombre}
+                  </p>
+                  <p className="text-[11px] font-medium text-stone-500">
+                    {ROLE_LABELS[user.rol] || user.rol}
+                  </p>
+                </Link>
+              ) : (
+                <div className="text-right leading-tight">
+                  <p
+                    className={`max-w-[140px] truncate text-xs font-bold ${
+                      isCoordRoute ? "text-white" : "text-stone-800"
+                    }`}
+                  >
+                    {user.nombre}
+                  </p>
+                  <p
+                    className={`text-[11px] font-medium ${
+                      isCoordRoute ? "text-stone-400" : "text-stone-500"
+                    }`}
+                  >
+                    {ROLE_LABELS[user.rol] || user.rol}
+                  </p>
+                </div>
+              )}
               <button
                 type="button"
                 onClick={handleLogout}
@@ -223,7 +238,7 @@ export default function Navbar() {
           type="button"
           onClick={() => setMenuOpen((prev) => !prev)}
           aria-label="Abrir menú"
-          className={`inline-flex h-11 w-11 items-center justify-center rounded-xl md:hidden ${
+          className={`inline-flex h-11 w-11 items-center justify-center rounded-xl lg:hidden ${
             isCoordRoute
               ? "bg-stone-800 text-white"
               : "bg-stone-100 text-stone-800"
@@ -236,7 +251,7 @@ export default function Navbar() {
       {/* Mobile drawer */}
       {menuOpen && (
         <div
-          className={`border-t px-4 pb-5 pt-3 md:hidden ${
+          className={`border-t px-4 pb-5 pt-3 lg:hidden ${
             isCoordRoute
               ? "border-stone-800 bg-stone-900 text-white"
               : "border-stone-200 bg-white text-stone-900"

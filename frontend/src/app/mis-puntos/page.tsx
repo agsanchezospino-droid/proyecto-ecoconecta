@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, Award, Loader2 } from "lucide-react";
+import { AlertCircle, ArrowLeft, Award, Loader2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
@@ -16,27 +16,41 @@ export default function MisPuntosPage() {
   const router = useRouter();
   const [data, setData] = useState<MiResumenPuntos | null>(null);
   const [fetching, setFetching] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
-  const loadData = useCallback(async () => {
-    setFetching(true);
-    try {
-      const res = await apiFetch<MiResumenPuntos>("/solicitudes/mias/puntos");
-      setData(res);
-      await refreshUser();
-    } finally {
-      setFetching(false);
-    }
-  }, [refreshUser]);
+  const userId = user?.id ?? null;
+
+  const loadData = useCallback(
+    async (opts?: { syncProfile?: boolean }) => {
+      setFetching(true);
+      setLoadError(null);
+      try {
+        const res = await apiFetch<MiResumenPuntos>("/solicitudes/mias/puntos");
+        setData(res);
+        if (opts?.syncProfile) {
+          await refreshUser();
+        }
+      } catch (err) {
+        setLoadError(
+          err instanceof Error
+            ? err.message
+            : "No pudimos cargar tus puntos y beneficios en este momento."
+        );
+      } finally {
+        setFetching(false);
+      }
+    },
+    [refreshUser]
+  );
 
   useEffect(() => {
-    if (!loading) {
-      if (!user) {
-        router.replace("/login?next=/mis-puntos");
-      } else {
-        void loadData();
-      }
+    if (loading) return;
+    if (!userId) {
+      router.replace("/login?next=/mis-puntos");
+      return;
     }
-  }, [loading, user, router, loadData]);
+    void loadData({ syncProfile: false });
+  }, [loading, userId, router, loadData]);
 
   if (loading || !user) {
     return (
@@ -75,13 +89,32 @@ export default function MisPuntosPage() {
         )}
       </div>
 
+      {loadError && (
+        <div className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+          <span className="flex items-center gap-2 font-semibold">
+            <AlertCircle className="h-4 w-4 shrink-0" />
+            {loadError}
+          </span>
+          <button
+            type="button"
+            onClick={() => void loadData({ syncProfile: true })}
+            className="rounded-xl bg-rose-700 px-3 py-1.5 text-xs font-bold text-white hover:bg-rose-800"
+          >
+            Reintentar
+          </button>
+        </div>
+      )}
+
       <div className="mt-6">
         {fetching || !data ? (
           <div className="flex justify-center py-14">
             <Loader2 className="h-7 w-7 animate-spin text-huerta-600" />
           </div>
         ) : (
-          <PointsAndBenefitsView data={data} onRefresh={loadData} />
+          <PointsAndBenefitsView
+            data={data}
+            onRefresh={() => loadData({ syncProfile: true })}
+          />
         )}
       </div>
     </div>

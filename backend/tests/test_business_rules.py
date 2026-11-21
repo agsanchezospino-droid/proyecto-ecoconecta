@@ -459,3 +459,72 @@ def test_whatsapp_webhook_flow_reclassify_schedule_close_and_dual_points(
         "Valores de puntaje y beneficios referenciales y parametrizables"
         in reglas[0]["nota_institucional"]
     )
+
+
+def test_citizen_account_endpoints_for_piloto_hogar_and_new_users(client: TestClient):
+    """Verifica acceso completo a Mi Cuenta para unidad_productiva y hogar
+    (cuentas demo semilla y usuarios nuevos sin solicitudes ni movimientos de puntos).
+    """
+    for email, expected_rol in (
+        ("piloto@villas.demo", "unidad_productiva"),
+        ("hogar@villas.demo", "hogar"),
+    ):
+        demo_res = client.post("/api/v1/auth/demo-login", json={"email": email})
+        assert demo_res.status_code == 200, demo_res.text
+        demo_data = demo_res.json()
+        assert demo_data["usuario"]["rol"] == expected_rol
+        assert demo_data["usuario"]["es_piloto"] is True
+        hdr = {"Authorization": f"Bearer {demo_data['access_token']}"}
+
+        for endpoint in ("/api/v1/auth/me", "/api/v1/usuarios/me"):
+            me = client.get(endpoint, headers=hdr)
+            assert me.status_code == 200, me.text
+            body = me.json()
+            assert body["email"] == email
+            assert body["rol"] == expected_rol
+            assert body["telefono"]
+            assert body["direccion"]
+            assert isinstance(body["puntos_acumulados"], (int, float))
+
+        sols = client.get("/api/v1/solicitudes/mias", headers=hdr)
+        assert sols.status_code == 200, sols.text
+        assert isinstance(sols.json(), list)
+
+        pts = client.get("/api/v1/solicitudes/mias/puntos", headers=hdr)
+        assert pts.status_code == 200, pts.text
+        assert "progreso_nivel" in pts.json()
+
+    # Usuario nuevo sin solicitudes ni movimientos -> devuelve 0.0 y jamás 500
+    for rol in ("hogar", "unidad_productiva"):
+        new_email = f"nuevo.{rol}.{uuid.uuid4().hex[:8]}@ejemplo.com"
+        reg = client.post(
+            "/api/v1/auth/register",
+            json={
+                "nombre": f"Cuenta Nueva {rol}",
+                "email": new_email,
+                "password": "ClaveSegura2026!",
+                "rol": rol,
+                "telefono": "+57 300 111 2233",
+                "direccion": "Manzana 7, Casa 2, Villas de San Pablo",
+                "barrio_sector": "Villas de San Pablo",
+            },
+        )
+        assert reg.status_code == 201, reg.text
+        token = reg.json()["access_token"]
+        hdr = {"Authorization": f"Bearer {token}"}
+
+        me = client.get("/api/v1/auth/me", headers=hdr)
+        assert me.status_code == 200, me.text
+        assert me.json()["rol"] == rol
+        assert me.json()["puntos_acumulados"] == 0.0
+
+        sols = client.get("/api/v1/solicitudes/mias", headers=hdr)
+        assert sols.status_code == 200
+        assert sols.json() == []
+
+        pts = client.get("/api/v1/solicitudes/mias/puntos", headers=hdr)
+        assert pts.status_code == 200
+        assert pts.json()["puntos_disponibles"] == 0.0
+        assert pts.json()["total_kg"] == 0.0
+        assert pts.json()["recolecciones_completadas"] == 0
+
